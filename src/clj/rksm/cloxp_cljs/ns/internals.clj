@@ -30,7 +30,7 @@
   "follows the reader while it core/reads an object and returns the string in
   range of what was read"
   [rdr]
-  (let [text (StringBuilder.) 
+  (let [text (StringBuilder.)
         pbr (proxy [PushbackReader] [rdr]
                    (read []
                          (let [i (proxy-super read)]
@@ -66,7 +66,8 @@
                     (select-keys [:column :line :file]))
         jar-match (re-find #"^file:(.*\.jar)!.*" (:file file-data))
         rdr (if jar-match
-              (rksm.system-files/jar-reader-for-ns (second jar-match) (namespace sym))
+              (sf/jar-reader-for-ns
+               (second jar-match) (namespace sym) ".cljs")
               (clojure.java.io/reader (:file file-data)))]
     (some->> [file-data]
       (merge-source rdr)
@@ -90,74 +91,6 @@
         base (select-keys analyzed-def [:file :column :line])]
     (assoc base :ns ns :name name)))
 
-(defn symbol-info-for-sym
-  "find what we know about symbol in a given namespace. This is *not* asking
-  for the meta data of a var, rather looking up what symbol is bound to what
-  thing in a given namespaces"
-  [ns-name sym & [file]]
-  (if-let [ns-data (some-> (ensure-default-cljs-env)
-                     :compiler-env deref
-                     :cljs.analyzer/namespaces)]
-    (if-let [source-ns-data (get ns-data ns-name)]
-      (let [sym-name (symbol (name sym))]
-        (if-let [sym-ns (some-> sym namespace symbol)]
-          
-          ; for qualified symbols like s/join or clojure.string/join
-          (if-let [macro-ns (some-> source-ns-data :require-macros (get sym-ns))] ; macro?
-            (symbol-info-for-macro macro-ns sym-name)
-            
-            ; required?
-            (let [full-ns-name (or (some-> source-ns-data :requires (get sym-ns)) sym-ns)
-                  qname (symbol (str (or full-ns-name sym-ns)) (str sym-name))]
-              (analyzed-data-of-def qname file)))
-          
-          ; unqualified symbols
-          (if-let [def-data (some-> ns-data ; def in current ns?
-                              (get ns-name) :defs (get sym-name))]
-            (assoc def-data :ns ns-name)
-            
-            ; macro?
-            (if-let [macro-ns (some-> source-ns-data :use-macros (get sym-name))]
-              (symbol-info-for-macro macro-ns sym-name)
-              
-              ; referred?
-              (if-let [target-ns-name (some-> source-ns-data :uses (get sym-name))]
-                (symbol-info-for-sym target-ns-name sym-name)))))))))
-
-(defn symbol-info-for-sym
-  "find what we know about symbol in a given namespace. This is *not* asking
-  for the meta data of a var, rather looking up what symbol is bound to what
-  thing in a given namespaces"
-  [ns-name sym & [file]]
-  (if-let [ns-data (some-> (ensure-default-cljs-env)
-                     :compiler-env deref
-                     :cljs.analyzer/namespaces)]
-    (if-let [source-ns-data (get ns-data ns-name)]
-      (let [sym-name (symbol (name sym))]
-        (if-let [sym-ns (some-> sym namespace symbol)]
-          
-          ; for qualified symbols like s/join or clojure.string/join
-          (if-let [macro-ns (some-> source-ns-data :require-macros (get sym-ns))] ; macro?
-            (symbol-info-for-macro macro-ns sym-name)
-            
-            ; required?
-            (let [full-ns-name (or (some-> source-ns-data :requires (get sym-ns)) sym-ns)
-                  qname (symbol (str (or full-ns-name sym-ns)) (str sym-name))]
-              (analyzed-data-of-def qname file)))
-          
-          ; unqualified symbols
-          (if-let [def-data (some-> ns-data ; def in current ns?
-                              (get ns-name) :defs (get sym-name))]
-            (assoc def-data :ns ns-name)
-            
-            ; macro?
-            (if-let [macro-ns (some-> source-ns-data :use-macros (get sym-name))]
-              (symbol-info-for-macro macro-ns sym-name)
-              
-              ; referred?
-              (if-let [target-ns-name (some-> source-ns-data :uses (get sym-name))]
-                (symbol-info-for-sym target-ns-name sym-name)))))))))
-
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (defn symbol-info-for-macro
@@ -176,25 +109,25 @@
     (if-let [source-ns-data (get ns-data ns-name)]
       (let [sym-name (symbol (name sym))]
         (if-let [sym-ns (some-> sym namespace symbol)]
-          
+
           ; for qualified symbols like s/join or clojure.string/join
           (if-let [macro-ns (some-> source-ns-data :require-macros (get sym-ns))] ; macro?
             (symbol-info-for-macro macro-ns sym-name)
-            
+
             ; required?
             (let [full-ns-name (or (some-> source-ns-data :requires (get sym-ns)) sym-ns)
                   qname (symbol (str (or full-ns-name sym-ns)) (str sym-name))]
               (analyzed-data-of-def qname file)))
-          
+
           ; unqualified symbols
           (if-let [def-data (some-> ns-data ; def in current ns?
                               (get ns-name) :defs (get sym-name))]
             (assoc def-data :ns ns-name)
-            
+
             ; macro?
             (if-let [macro-ns (some-> source-ns-data :use-macros (get sym-name))]
               (symbol-info-for-macro macro-ns sym-name)
-              
+
               ; referred?
               (if-let [target-ns-name (some-> source-ns-data :uses (get sym-name))]
                 (symbol-info-for-sym target-ns-name sym-name)))))))))
@@ -205,7 +138,7 @@
   [ns-name & [file]]
   (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
     (if-let [data (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
-                                         (do 
+                                         (do
                                            (if file (ana/analyze-file (clojure.java.io/file file)))
                                            (some-> env/*compiler*
                                              deref
@@ -256,9 +189,9 @@
 (def ^{:dynamic true} *optimizations* :none)
 
 (defn compile-cljs
-  [ns-name file]  
-  (let [target-dir "./cloxp-cljs-build/"
-        target-file (str target-dir
+  [ns-name file]
+  (let [target-dir (.getCanonicalPath (clojure.java.io/file "./cloxp-cljs-build/"))
+        target-file (str target-dir java.io.File/separator
                          (-> (clojure.java.io/file file)
                            .getName
                            (s/replace #"\.clj(.)?$" ".js")))
@@ -267,11 +200,11 @@
     (cljsc/build file {:optimizations *optimizations*
                        :output-to target-file
                        :output-dir target-dir
-                       :cache-analysis true                
+                       :cache-analysis true
                        :source-map source-map-file})))
 
 (defn compile-all-cljs
-  [dir]  
+  [dir]
   (let [target-dir "./cloxp-cljs-build/"]
     (sf/add-classpath target-dir)
     (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
@@ -358,9 +291,9 @@
 ;   (ana/forms-seq file)
    )
 
- (source-for-symbol 'rksm.test/foo) 
- 
- 
+ (source-for-symbol 'rksm.test/foo)
+
+
  (some-> (ensure-default-cljs-env)
    :compiler-env
    deref
@@ -370,15 +303,15 @@
    (get 'foo)
    (select-keys [:column :line :file])
    )
- 
- 
+
+
  (namespace-info 'rksm.test)
 
  (rksm.system-navigator.ns.internals/namespace-info *ns*)
  (ensure-default-cljs-env)
 
  (:cljs.analyzer/analyzed-cljs :cljs.analyzer/namespaces :options :js-dependency-index)
- 
+
  (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
    @ana/namespaces)
 
@@ -387,6 +320,6 @@
  (-> (clojure.java.io/file "/Users/robert/clojure/cloxp-repl/out") .exists)
 
  (System/setProperty "user.dir" "/Users/robert/clojure/cloxp-cljs")
- 
- 
+
+
  )
