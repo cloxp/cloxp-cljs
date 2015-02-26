@@ -3,7 +3,14 @@
             [rksm.cloxp-cljs.ns.internals :refer :all]))
 
 (defonce test-file "/Users/robert/clojure/cloxp-cljs/src/cljs/rksm/test.cljs")
-(defonce orig-source (slurp test-file))
+(defonce orig-source "(ns rksm.test
+  (:require [clojure.string :as s]))
+
+(js/alert (.toUpperCase \"Running 3!\"))
+
+(defn ^:export foo
+  [x]
+  (+ x 29))\n")
 (defonce sep java.io.File/separator)
 
 (defn source-state-fixture [test]
@@ -19,12 +26,12 @@
   (is (= {:interns
           [{:name "foo",
             :ns "rksm.test",
-            :line 7,
+            :line 6,
             :column 1,
             :file test-file}],
           :file test-file,
           :imports nil,
-          :requires nil,
+          :requires {'clojure.string 'clojure.string, 's 'clojure.string},
           :uses nil,
           :excludes #{},
           :doc nil,
@@ -33,14 +40,14 @@
 
 (deftest source-for-symbol-test
   
-  (is (= "(defn foo
+  (is (= "(defn ^:export foo
   [x]
-  (+ x 23))"
+  (+ x 29))"
          (source-for-symbol 'rksm.test/foo))))
 
 (deftest source-for-ns-test
   
-  (is (= "(ns rksm.test\n  ; (:require [clojure.string :as s])\n  )\n\n(js/alert \"Running!\")\n\n(defn foo\n  [x]\n  (+ x 23))"
+  (is (= orig-source
          (source-for-ns 'rksm.test))))
 
 (deftest change-ns-test
@@ -53,12 +60,25 @@
 
 (deftest change-def-test
 
-  (let [new-src "(defn foo\n  [x]\n  (+ x 29))"
-        expected-src "(ns rksm.test\n  ; (:require [clojure.string :as s])\n  )\n\n(js/alert \"Running!\")\n\n(defn foo\n  [x]\n  (+ x 29))"]
+  (let [new-src "(defn ^:export foo
+  [x]
+  (+ x 32))\n"
+        expected-src "(ns rksm.test
+  (:require [clojure.string :as s]))
+
+(js/alert (.toUpperCase \"Running 3!\"))
+
+(defn ^:export foo
+  [x]
+  (+ x 32))\n"]
     (change-def! 'rksm.test/foo new-src true)
     (is (= expected-src (slurp test-file))))
   
   )
+
+(deftest has-cljs-core-analyzed
+  (is (= {:name 'cljs.core/map, :fn-var true}
+         (select-keys (symbol-info-for-sym 'cljs.core 'map) [:name :fn-var]))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -69,7 +89,9 @@
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (comment
- 123
+
+ (reset! rksm.cloxp-cljs.ns.internals/cljs-env {})
  (run-tests 'rksm.cloxp-cljs.ns.internals-test)
+
  (clojure.repl/pst *e 999)
  )

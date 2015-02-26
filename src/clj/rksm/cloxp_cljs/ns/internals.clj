@@ -6,22 +6,28 @@
             [clojure.data.json :as json]
             [clojure.string :as s]
             [clojure.tools.reader :as tr]
-            [cljs.closure :as cljsc])
+            [cljs.closure :as cljsc]
+            [clojure.java.io :as io])
   (:import (java.io LineNumberReader PushbackReader File)))
 
-(declare analyzed-data-of-def)
+(declare namespace-info analyzed-data-of-def)
 
 (defonce cljs-env (atom {}))
-
+(comment (reset! cljs-env {}))
 
 (defn ensure-default-cljs-env
   []
   (if-let [e (:default @cljs-env)]
     e
-    (swap! cljs-env assoc
-           :default
-           {:analyzer-env (atom (merge (ana/empty-env) {:ns 'cljs.user}))
-            :compiler-env (env/default-compiler-env)})))
+    (let [e (swap! cljs-env assoc
+                   :default
+                   {:analyzer-env (atom (merge (ana/empty-env) {:ns 'cljs.user}))
+                    :compiler-env (env/default-compiler-env)})]
+      (if-not (some-> e
+                :compiler-env deref
+                :cljs.analyzer/namespaces (get 'cljs.core))
+        (namespace-info 'cljs.core (fm/find-file-for-ns-on-cp 'cljs.core)))
+      e)))
 
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -62,26 +68,44 @@
 
 (defn source-for-symbol
   [sym & [file]]
-  (let [file-data (some-> (analyzed-data-of-def sym file)
-                    (select-keys [:column :line :file]))
-        jar-match (re-find #"^file:(.*\.jar)!.*" (:file file-data))
-        rdr (if jar-match
-              (sf/jar-reader-for-ns
-               (second jar-match) (namespace sym) ".cljs")
-              (clojure.java.io/reader (:file file-data)))]
-    (some->> [file-data]
-      (merge-source rdr)
-      first :source)))
+  ; FIXME ensure namespace info
+  (let [ns-name (symbol (namespace sym))] 
+    (if-not (some-> (ensure-default-cljs-env)
+              :compiler-env deref
+              :cljs.analyzer/namespaces (get ns-name))
+      (namespace-info ns-name file)))
+  (if-let [file-data (some-> (analyzed-data-of-def sym file)
+                       (select-keys [:column :line :file]))]
+    (let [def-file (:file file-data)
+           rdr (if (sf/jar-clojure-url-string? def-file)
+                 (sf/jar-url->reader def-file)
+                 (io/reader def-file))]
+      (some->> [file-data]
+        (merge-source rdr)
+        first :source))))
+
+
+(defn source-reader-for-ns
+  [ns-name & [file]]
+  (if-let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
+    (if (sf/jar-clojure-url-string? file)
+      (sf/jar-url->reader file)
+      (io/reader file))))
 
 (defn source-for-ns
   [sym & [file]]
-  (slurp
-   (clojure.java.io/file
-    (or file
-        (fm/find-file-for-ns-on-cp sym)))))
+  (slurp (source-reader-for-ns sym file)))
 
+; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+(defn analyzed-data-of-def
+  [sym & [file]]
+  (let [ns-name (symbol (namespace sym))
+        name (symbol (name sym))]
+    (some-> (ensure-default-cljs-env)
+      :compiler-env deref
+      :cljs.analyzer/namespaces (get ns-name)
+      :defs (get name))))
 
 (defn intern-info
   [analyzed-def]
@@ -120,7 +144,7 @@
               (analyzed-data-of-def qname file)))
 
           ; unqualified symbols
-          (if-let [def-data (some-> ns-data ; def in current ns?
+          (if-let [def-data (some-> ns-data ; def in currentjar-url->entry ns?
                               (get ns-name) :defs (get sym-name))]
             (assoc def-data :ns ns-name)
 
@@ -139,7 +163,11 @@
   (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
     (if-let [data (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
                                          (do
-                                           (if file (ana/analyze-file (clojure.java.io/file file)))
+                                           (if file
+                                             (ana/analyze-file
+                                              (if (sf/jar-clojure-url-string? file)
+                                                (java.net.URL. file)
+                                                (io/file file))))
                                            (some-> env/*compiler*
                                              deref
                                              :cljs.analyzer/namespaces
@@ -190,23 +218,22 @@
 
 (defn compile-cljs
   [ns-name file]
-  (let [target-dir (.getCanonicalPath (clojure.java.io/file "./cloxp-cljs-build/"))
+  (let [target-dir (.getCanonicalPath (io/file "./cloxp-cljs-build/"))
         target-file (str target-dir java.io.File/separator
-                         (-> (clojure.java.io/file file)
+                         (-> (io/file file)
                            .getName
                            (s/replace #"\.clj(.)?$" ".js")))
         source-map-file (str target-file ".map")]
-    (sf/add-classpath target-dir)
     (cljsc/build file {:optimizations *optimizations*
                        :output-to target-file
                        :output-dir target-dir
                        :cache-analysis true
-                       :source-map source-map-file})))
+                    ;   :source-map source-map-file
+                       })))
 
 (defn compile-all-cljs
   [dir]
-  (let [target-dir "./cloxp-cljs-build/"]
-    (sf/add-classpath target-dir)
+  (let [target-dir (.getCanonicalPath (io/file "./cloxp-cljs-build/"))]
     (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
       (cljsc/build dir {:optimizations *optimizations*
                         :output-dir target-dir
@@ -301,7 +328,7 @@
   (get 'rksm.test)
   :defs
    (get 'foo)
-   (select-keys [:column :line :file])
+;   (select-keys [:column :line :file])
    )
 
 
@@ -316,8 +343,8 @@
    @ana/namespaces)
 
  (java.util.Date. (.lastModified file))
- (-> (clojure.java.io/file "/Users/robert/clojure/cloxp-cljs/out") .exists)
- (-> (clojure.java.io/file "/Users/robert/clojure/cloxp-repl/out") .exists)
+ (-> (io/file "/Users/robert/clojure/cloxp-cljs/out") .exists)
+ (-> (io/file "/Users/robert/clojure/cloxp-repl/out") .exists)
 
  (System/setProperty "user.dir" "/Users/robert/clojure/cloxp-cljs")
 
