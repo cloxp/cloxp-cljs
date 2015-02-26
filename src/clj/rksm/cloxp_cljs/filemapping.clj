@@ -27,13 +27,16 @@
 
 (defn find-file-for-ns-on-cp
   [ns-name]
-  (let [path (sf/ns-name->rel-path ns-name ".cljs")]
-    (->> (cp-dirs-with-cljs)
-      (mapcat (fn [[dir files]]
-                (filter 
-                 #(= path (fs/path-relative-to dir (.getCanonicalPath %)))
-                 files)))
-      first)))
+  (or
+   (let [path (sf/ns-name->rel-path ns-name ".cljs")]
+     (some->> (cp-dirs-with-cljs)
+       (mapcat (fn [[dir files]]
+                 (filter 
+                  #(= path (fs/path-relative-to dir (.getCanonicalPath %)))
+                  files)))
+       first
+       .getCanonicalPath))
+   (sf/jar-url-for-ns ns-name ".cljs")))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -48,4 +51,15 @@
 (comment
  (cljs-files-in-cp-dirs)
  (find-file-for-ns-on-cp 'rksm.test)
+ (find-file-for-ns-on-cp 'cljs.core.async.impl.dispatch)
+ (.file (ClassLoader/getSystemResource "cljs/core/async.cljs"))
+ 
+ (def jar-string (.toString (.toURI (ClassLoader/getSystemResource "cljs/core/async.cljs"))))
+ (clojure.string/split #"!" jar-string)
+ (java.util.jar.JarFile. )
+ 
+ (slurp (clojure.java.io/file (.toString (.toURI (ClassLoader/getSystemResource "cljs/core/async.cljs")))))
+ (slurp (clojure.java.io/reader (ClassLoader/getSystemResource "cljs/core/async.cljs")))
+ 
+ 
  )
