@@ -4,7 +4,8 @@
 
 (defonce test-file "/Users/robert/clojure/cloxp-cljs/src/cljs/rksm/test.cljs")
 (defonce orig-source "(ns rksm.test
-  (:require [clojure.string :as s]))
+  (:require [clojure.string :as s]
+            [clojure.set :refer (union)]))
 
 (js/alert (.toUpperCase \"Running 3!\"))
 
@@ -26,13 +27,15 @@
   (is (= {:interns
           [{:name "foo",
             :ns "rksm.test",
-            :line 6,
+            :line 7,
             :column 1,
             :file test-file}],
           :file test-file,
           :imports nil,
-          :requires {'clojure.string 'clojure.string, 's 'clojure.string},
-          :uses nil,
+          :requires {'clojure.string 'clojure.string
+                     's 'clojure.string
+                     'clojure.set 'clojure.set},
+          :uses {'union 'clojure.set},
           :excludes #{},
           :doc nil,
           :name 'rksm.test}
@@ -50,13 +53,11 @@
   (is (= orig-source
          (source-for-ns 'rksm.test))))
 
-(deftest change-ns-test
-
-  (let [new-src "(ns rksm.test\n  ; (:require [clojure.string :as s])\n  )\n\n(js/alert \"Running!\")\n\n(defn foo\n  [x]\n  (+ x 24))"]
-    (change-ns! 'rksm.test new-src true)
-    (is (= new-src (slurp test-file))))
-  
-  )
+; (deftest change-ns-test
+;   (let [new-src "(ns rksm.test\n  ; (:require [clojure.string :as s])\n  )\n\n(js/alert \"Running!\")\n\n(defn foo\n  [x]\n  (+ x 24))"]
+;     (change-ns! 'rksm.test new-src true)
+;     (is (= new-src (slurp test-file))))  
+;   )
 
 (deftest change-def-test
 
@@ -64,7 +65,8 @@
   [x]
   (+ x 32))\n"
         expected-src "(ns rksm.test
-  (:require [clojure.string :as s]))
+  (:require [clojure.string :as s]
+            [clojure.set :refer (union)]))
 
 (js/alert (.toUpperCase \"Running 3!\"))
 
@@ -72,18 +74,38 @@
   [x]
   (+ x 32))\n"]
     (change-def! 'rksm.test/foo new-src true)
-    (is (= expected-src (slurp test-file))))
-  
-  )
-
-(deftest has-cljs-core-analyzed
-  (is (= {:name 'cljs.core/map, :fn-var true}
-         (select-keys (symbol-info-for-sym 'cljs.core 'map) [:name :fn-var]))))
+    (is (= expected-src (slurp test-file)))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (deftest find-infos-about-symbols-in-ns
-;   (symbol-info-for-sym 'rksm.test 's/join)
+  (testing "core"
+    (is (= {:name 'cljs.core/map :ns 'cljs.core}
+           (select-keys (symbol-info-for-sym 'rksm.test 'map) [:name :ns]))))
+
+  (testing "aliased"
+    (is (= {:name 'clojure.string/join :ns 'clojure.string}
+           (select-keys (symbol-info-for-sym 'rksm.test 's/join) [:name :ns]))))
+
+  (testing "refered"
+    (is (= {:name 'clojure.set/union :ns 'clojure.set}
+           (select-keys (symbol-info-for-sym 'rksm.test 'union) [:name :ns]))))
+  
+  (testing "refered qualified"
+    (is (= {:name 'clojure.set/union :ns 'clojure.set}
+           (select-keys (symbol-info-for-sym 'rksm.test 'clojure.set/union) [:name :ns]))))
+
+  (testing "required"
+    (is (= {:name 'clojure.set/difference :ns 'clojure.set}
+           (select-keys (symbol-info-for-sym 'rksm.test 'clojure.set/difference) [:name :ns]))))
+
+  (testing "local"
+    (is (= {:name 'rksm.test/foo :ns 'rksm.test}
+           (select-keys (symbol-info-for-sym 'rksm.test 'foo) [:name :ns]))))
+
+  (testing "local qualified"
+    (is (= {:name 'rksm.test/foo :ns 'rksm.test}
+           (select-keys (symbol-info-for-sym 'rksm.test 'rksm.test/foo) [:name :ns]))))
   )
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

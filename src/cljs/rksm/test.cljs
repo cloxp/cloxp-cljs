@@ -1,5 +1,6 @@
 (ns rksm.test
-  (:require [clojure.string :as s]))
+  (:require [clojure.string :as s]
+            [clojure.set :refer (union)]))
 
 (js/alert (.toUpperCase "Running 3!"))
 
