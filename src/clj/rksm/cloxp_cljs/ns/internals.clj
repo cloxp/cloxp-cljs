@@ -122,6 +122,11 @@
     (assoc base :ns ns :name name)))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+(defn symbol-info-for-macro
+  [ns-name name]
+  (some-> (ns-interns ns-name) (get name) meta))
+
 (defn symbol-info-for-sym
   "find what we know about symbol in a given namespace. This is *not* asking
   for the meta data of a var, rather looking up what symbol is bound to what
@@ -150,38 +155,12 @@
             (symbol-info-for-macro macro-ns sym-name)
             (analyzed-data-of-def qname file)))))))
 
-(defn symbol-info-for-sym
-  "find what we know about symbol in a given namespace. This is *not* asking
-  for the meta data of a var, rather looking up what symbol is bound to what
-  thing in a given namespaces"
-  [ns-name sym & [file]]
-  (let [cenv (:compiler-env (ensure-default-cljs-env))
-        lenv (assoc (ana/empty-env) :ns ns-name)
-        sym-name (symbol (name sym))]
-    (if-let [ns-data (some-> cenv deref :cljs.analyzer/namespaces)]
-      (if-let [source-ns-data (get ns-data ns-name)]
-        (let [sym-ns (or
-                      (some-> sym namespace symbol) 
-                      (if (cljs.env/with-compiler-env cenv
-                            (ana/core-name? lenv sym-name)) 'cljs.core))
-              macro-ns (or
-                        (some-> source-ns-data :require-macros (get sym-ns))
-                        (some-> source-ns-data :use-macros (get sym-name)))
-              full-sym-ns (or (some-> source-ns-data :requires (get sym-ns))
-                              (some-> source-ns-data :uses (get sym-name))
-                              sym-ns)
-              qname (if full-sym-ns
-                      (symbol (str (or full-sym-ns sym-ns)) (str sym-name))
-                      sym-name)]
-          (if macro-ns
-            (symbol-info-for-macro macro-ns sym-name)
-            (analyzed-data-of-def qname file)))))))
-
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (defn namespace-info
   [ns-name & [file]]
   (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
+    (class (:compiler-env (ensure-default-cljs-env)))
     (if-let [data (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
                                          (do
                                            (if file
