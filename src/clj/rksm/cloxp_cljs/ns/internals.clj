@@ -67,12 +67,14 @@
 
 (defn source-for-symbol
   [sym & [file]]
-  ; FIXME ensure namespace info
+
+  ; ensure we have analyzed data for ns of sym
   (let [ns-name (symbol (namespace sym))] 
-    (if-not (some-> (ensure-default-cljs-env)
-              :compiler-env deref
-              :cljs.analyzer/namespaces (get ns-name))
-      (namespace-info ns-name file)))
+    (if-not (get-in
+             @(:compiler-env (ensure-default-cljs-env))
+             [:cljs.analyzer/namespaces ns-name])
+      (ensure-ns-analyzed! ns-name)))
+
   (if-let [file-data (some-> (analyzed-data-of-def sym file)
                        (select-keys [:column :line :file]))]
     (let [def-file (:file file-data)
