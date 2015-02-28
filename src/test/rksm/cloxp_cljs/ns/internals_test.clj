@@ -15,8 +15,10 @@
 (defonce sep java.io.File/separator)
 
 (defn source-state-fixture [test]
+  (ensure-ns-analyzed! 'rksm.test)
   (test)
-  (spit test-file orig-source))
+  (spit test-file orig-source)
+  (reset! rksm.cloxp-cljs.ns.internals/cljs-env {}))
 
 (use-fixtures :each source-state-fixture)
 
@@ -79,6 +81,7 @@
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (deftest find-infos-about-symbols-in-ns
+
   (testing "core"
     (is (= {:name 'cljs.core/map :ns 'cljs.core}
            (select-keys (symbol-info-for-sym 'rksm.test 'map) [:name :ns]))))
@@ -114,6 +117,7 @@
 
  (reset! rksm.cloxp-cljs.ns.internals/cljs-env {})
  (run-tests 'rksm.cloxp-cljs.ns.internals-test)
+ (test-var #'rksm.cloxp-cljs.ns.internals-test/change-def-test)
 
- (clojure.repl/pst *e 999)
+ (-> (rksm.cloxp-cljs.ns.internals/ensure-default-cljs-env) :compiler-env deref)
  )

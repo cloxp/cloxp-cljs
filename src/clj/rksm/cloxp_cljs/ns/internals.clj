@@ -10,10 +10,9 @@
             [clojure.java.io :as io])
   (:import (java.io LineNumberReader PushbackReader File)))
 
-(declare namespace-info analyzed-data-of-def)
+(declare namespace-info analyzed-data-of-def analyze-cljs-ns!)
 
 (defonce cljs-env (atom {}))
-(comment (reset! cljs-env {}))
 
 (defn ensure-default-cljs-env
   []
@@ -159,23 +158,24 @@
 
 (defn namespace-info
   [ns-name & [file]]
-  (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
-    (class (:compiler-env (ensure-default-cljs-env)))
-    (if-let [data (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
-                                         (do
-                                           (if file
-                                             (ana/analyze-file
-                                              (if (sf/jar-clojure-url-string? file)
-                                                (java.net.URL. file)
-                                                (io/file file))))
-                                           (some-> env/*compiler*
-                                             deref
-                                             :cljs.analyzer/namespaces
-                                             (get ns-name))))]
+  (let [file (or file (fm/find-file-for-ns-on-cp ns-name))
+        cenv (:compiler-env (ensure-default-cljs-env))]
+    (if-let [
+             data (analyze-cljs-ns! ns-name)
+            ;  data (env/with-compiler-env cenv
+            ;         (if file
+            ;           (ana/analyze-file
+            ;           (if (sf/jar-clojure-url-string? file)
+            ;              (java.net.URL. file)
+            ;              (io/file file))))
+            ;         (some-> env/*compiler* deref
+            ;           :cljs.analyzer/namespaces
+            ;           (get ns-name)))
+             ]
       (-> data
         (select-keys [:name :doc :excludes :use :require :uses :requires :imports])
         (assoc :file (if file (str file)))
-        (assoc :interns (map intern-info (vals (:defs data))))))))
+        (assoc :interns (reverse (map intern-info (vals (:defs data)))))))))
 
 (defn stringify [obj]
   (cond
@@ -215,6 +215,21 @@
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (def ^{:dynamic true} *optimizations* :none)
+
+(defn analyze-cljs-ns!
+  [ns-sym]
+  (let [cenv-atom (:compiler-env (rksm.cloxp-cljs.ns.internals/ensure-default-cljs-env))
+        path (rksm.cloxp-cljs.filemapping/find-file-for-ns-on-cp ns-sym)
+        rel-path (rksm.system-files/ns-name->rel-path ns-sym ".cljs")]
+    (cljs.env/with-compiler-env cenv-atom
+      (swap! cljs.env/*compiler*
+             (fn [cenv]
+               (update-in cenv [:cljs.analyzer/namespaces] #(dissoc % ns-sym))
+               (update-in cenv [:cljs.analyzer/analyzed-cljs] #(dissoc % path))))
+      (cljs.analyzer/analyze-file rel-path {:cache-analysis false})
+      (-> cljs.env/*compiler* deref
+        :cljs.analyzer/namespaces
+        (get ns-sym)))))
 
 (defn compile-cljs
   [ns-name file]
@@ -263,13 +278,30 @@
 
 (defn change-def!
   [sym new-source & [write-to-file file]]
-  (let [old-src (source-for-symbol sym file)]
-    (if (and old-src write-to-file)
-      (update-source-file! sym new-source old-src file))
+  [sym new-source]
+  (let [ns-name (symbol (namespace sym))
+        file (or file (fm/find-file-for-ns-on-cp ns-name))
+        info (analyzed-data-of-def sym file)
+        old-file-src (source-for-ns ns-name file)
+        old-src (source-for-symbol sym file)]
+
+    (if-not old-file-src
+      (throw (Exception. (str "Cannot retrieve current source for " ns-name))))
+
+    ; 1. update file and analyzed data
+    (if write-to-file
+      (when file
+        (let [new-file-src (sf/updated-source sym info new-source old-src old-file-src)]
+          (spit file new-file-src)
+          (analyze-cljs-ns! ns-name)
+          (compile-cljs ns-name file))))
+    
+    ; 2. update runtime
     (eval-and-update-meta! sym new-source)
     ; (update-source-pos-of-defs-below! sym new-source old-src)
-    (let [old-src (source-for-symbol sym file)
-          change (record-change! sym new-source old-src)]
+    
+    ; 3. register change
+    (let [change (record-change! sym new-source old-src)]
       (dissoc change :source :prev-source))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -294,11 +326,22 @@
       (if write-to-file
         (when-let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
           (spit file new-source)
+          (analyze-cljs-ns! ns-name)
           (compile-cljs ns-name file)))
       (let [diff (change-ns-in-runtime! ns-name new-source old-src file)
             change (record-change-ns! ns-name new-source old-src diff)]
         change))
     (throw (Exception. (str "Cannot retrieve current source for " ns-name)))))
+
+; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+(defn ensure-ns-analyzed!
+  [ns-name]
+  (namespace-info ns-name))
+
+(defn reset-cljs-analyzer
+  []
+  (reset! cljs-env {}))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
