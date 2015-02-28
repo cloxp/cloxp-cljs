@@ -48,29 +48,9 @@
 ;       (map #(sf/rel-path->ns-name
 ;               (fs/path-relative-to dir (.getCanonicalPath %))) files)))))
 
-(defn find-cljs-namespace-data
-  [cp]
-  (let [jar? (boolean (re-find #"\.jar$" (.getName cp)))
-        sep java.io.File/separator]
-    (if-let [files (cond
-                     (not (.exists cp)) nil
-                     (.isDirectory cp) (map (partial fs/path-relative-to cp)
-                                            (sf/clj-files-in-dir cp))
-                     jar? (->> cp java.util.jar.JarFile. .entries iterator-seq (map #(.getName %)))
-                     :default nil)]    
-      (let [cljs-files (filter (partial re-find #"\.cljs$") files)]
-        (map (fn [rel-path] 
-               {:jar? jar?
-                :cp cp
-                :ns (sf/rel-path->ns-name rel-path)
-                :file (if jar? (str "jar:file:" cp "!" sep rel-path) (str cp sep rel-path))})
-             cljs-files)))))
-
 (defn find-cljs-namespaces-on-cp
   []
-  (->> (sf/sorted-classpath)
-    (mapcat find-cljs-namespace-data)
-    (map :ns)))
+  (sf/find-namespaces-on-cp #"\.cljs$"))
 
 (comment
  (cljs-files-in-cp-dirs)
