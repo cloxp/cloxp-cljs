@@ -10,7 +10,7 @@
             [clojure.java.io :as io])
   (:import (java.io LineNumberReader PushbackReader File)))
 
-(declare namespace-info analyzed-data-of-def analyze-cljs-ns!)
+(declare ensure-ns-analyzed! analyzed-data-of-def analyze-cljs-ns!)
 
 (defonce cljs-env (atom {}))
 
@@ -25,7 +25,7 @@
       (if-not (some-> e
                 :compiler-env deref
                 :cljs.analyzer/namespaces (get 'cljs.core))
-        (namespace-info 'cljs.core (fm/find-file-for-ns-on-cp 'cljs.core)))
+        (ensure-ns-analyzed! 'cljs.core))
       e)))
 
 
@@ -103,11 +103,12 @@
   [sym & [file]]
   (let [ns-name (symbol (namespace sym))
         name (symbol (name sym))]
-    (if-not (some-> (ensure-default-cljs-env) ; in case ns data isn't there yet...
-              :compiler-env deref
-              :cljs.analyzer/namespaces
-              (get ns-name))
-      (namespace-info ns-name file))
+
+    (if-not (get-in ; in case ns data isn't there yet...
+                    @(:compiler-env (ensure-default-cljs-env))
+                    [:cljs.analyzer/namespaces ns-name])
+      (ensure-ns-analyzed! ns-name))
+
     (some-> (ensure-default-cljs-env)
       :compiler-env deref
       :cljs.analyzer/namespaces (get ns-name)
