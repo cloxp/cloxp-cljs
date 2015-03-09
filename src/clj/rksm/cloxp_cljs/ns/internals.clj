@@ -2,6 +2,7 @@
   (:require [cljs.analyzer :as ana]
             [cljs.env :as env]
             [rksm.cloxp-cljs.filemapping :as fm]
+            [rksm.cloxp-cljs.compilation :as comp]
             [rksm.system-files :as sf]
             [clojure.data.json :as json]
             [clojure.string :as s]
@@ -217,13 +218,11 @@
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-(def ^{:dynamic true} *optimizations* :none)
-
 (defn analyze-cljs-ns!
   [ns-sym]
-  (let [cenv-atom (:compiler-env (rksm.cloxp-cljs.ns.internals/ensure-default-cljs-env))
-        path (rksm.cloxp-cljs.filemapping/find-file-for-ns-on-cp ns-sym)
-        rel-path (rksm.system-files/ns-name->rel-path ns-sym ".cljs")]
+  (let [cenv-atom (:compiler-env (ensure-default-cljs-env))
+        path (fm/find-file-for-ns-on-cp ns-sym)
+        rel-path (sf/ns-name->rel-path ns-sym ".cljs")]
     (cljs.env/with-compiler-env cenv-atom
       (swap! cljs.env/*compiler*
              (fn [cenv]
@@ -234,30 +233,9 @@
         :cljs.analyzer/namespaces
         (get ns-sym)))))
 
-(defn compile-cljs
-  [ns-name file]
-  (let [target-dir (.getCanonicalPath (io/file "./cloxp-cljs-build/"))
-        target-file (str target-dir java.io.File/separator
-                         (-> (io/file file)
-                           .getName
-                           (s/replace #"\.clj(.)?$" ".js")))
-        source-map-file (str target-file ".map")]
-    (cljsc/build file {:optimizations *optimizations*
-                       :output-to target-file
-                       :output-dir target-dir
-                       :cache-analysis true
-                    ;   :source-map source-map-file
-                       })))
-
-(defn compile-all-cljs
-  [dir]
-  (let [target-dir (.getCanonicalPath (io/file "./cloxp-cljs-build/"))]
-    (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
-      (cljsc/build dir {:optimizations *optimizations*
-                        :output-dir target-dir
-                        :cache-analysis true}))))
-
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+(def ^:dynamic *compile?* true)
 
 (defn update-source-file!
   [sym new-source old-src file]
@@ -297,7 +275,10 @@
         (let [new-file-src (sf/updated-source sym info new-source old-src old-file-src)]
           (spit file new-file-src)
           (analyze-cljs-ns! ns-name)
-          (compile-cljs ns-name file))))
+          (if *compile?*
+            (comp/compile-cljs-in-project
+             (.getCanonicalPath (io/file "."))
+             (:compiler-env (ensure-default-cljs-env)))))))
     
     ; 2. update runtime
     (eval-and-update-meta! sym new-source)
@@ -330,7 +311,9 @@
         (when-let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
           (spit file new-source)
           (analyze-cljs-ns! ns-name)
-          (compile-cljs ns-name file)))
+          (if *compile?* (comp/compile-cljs-in-project
+                          (.getCanonicalPath (io/file "."))
+                          (:compiler-env (ensure-default-cljs-env))))))
       (let [diff (change-ns-in-runtime! ns-name new-source old-src file)
             change (record-change-ns! ns-name new-source old-src diff)]
         change))
