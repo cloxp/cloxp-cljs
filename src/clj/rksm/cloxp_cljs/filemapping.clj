@@ -20,11 +20,6 @@
           (into {})))
       map)))
 
-(defn cljs-files-in-cp-dirs
-  []
-  (->> (sf/classpath-dirs)
-    (mapcat #(fs/walk-dirs % #".*\.cljs$"))))
-
 (defn find-file-for-ns-on-cp
   [ns-name]
   (or
@@ -53,7 +48,6 @@
   (sf/find-namespaces-on-cp #"\.cljs$"))
 
 (comment
- (cljs-files-in-cp-dirs)
  (find-file-for-ns-on-cp 'rksm.test)
  (find-file-for-ns-on-cp 'cljs.core.async.impl.dispatch)
  (find-cljs-namespaces-on-cp)

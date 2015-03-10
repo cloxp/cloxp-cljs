@@ -1,6 +1,7 @@
 (ns rksm.cloxp-cljs.ns.internals-test
   (:require [clojure.test :refer :all]
-            [rksm.cloxp-cljs.ns.internals :refer :all]))
+            [rksm.cloxp-cljs.ns.internals :refer :all]
+            [rksm.system-files :as sf]))
 
 (defonce test-file "/Users/robert/clojure/cloxp-cljs/src/cljs/rksm/test.cljs")
 (defonce orig-source "(ns rksm.test
@@ -53,7 +54,7 @@
 (deftest source-for-ns-test
   
   (is (= orig-source
-         (source-for-ns 'rksm.test))))
+         (sf/source-for-ns 'rksm.test nil #"\.cljs$"))))
 
 ; (deftest change-ns-test
 ;   (let [new-src "(ns rksm.test\n  ; (:require [clojure.string :as s])\n  )\n\n(js/alert \"Running!\")\n\n(defn foo\n  [x]\n  (+ x 24))"]

@@ -2,3 +2,5 @@
 /checkouts/
 /target/
 /cloxp-cljs-build/
+/.lein-failures
+/.nrepl-port

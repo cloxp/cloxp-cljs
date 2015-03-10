@@ -6,6 +6,7 @@
             [rksm.system-files :as sf]
             [clojure.data.json :as json]
             [clojure.string :as s]
+            [rksm.cloxp-source-reader.core :as src-rdr]
             [clojure.tools.reader :as tr]
             [cljs.closure :as cljsc]
             [clojure.java.io :as io])
@@ -32,40 +33,6 @@
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-(defn- read-next-obj
-  "follows the reader while it core/reads an object and returns the string in
-  range of what was read"
-  [rdr]
-  (let [text (StringBuilder.)
-        pbr (proxy [PushbackReader] [rdr]
-                   (read []
-                         (let [i (proxy-super read)]
-                           (if (> i -1) (.append text (char i)))
-                           i)))]
-    (if (= :unknown *read-eval*)
-      (throw (IllegalStateException. "Unable to read source while *read-eval* is :unknown."))
-      (tr/read (PushbackReader. pbr) false nil))
-    (str text)))
-
-(defn- read-entity-source
-  "goes forward in line numbering reader until line of entity is reached and
-  reads that as an object"
-  [{lrdr :lrdr, sources :sources, :as record} meta-entity]
-  (or (if-let [line (:line meta-entity)]
-        (do
-          (dotimes [_ (dec (- line (.getLineNumber lrdr)))] (.readLine lrdr))
-          (let [updated (assoc meta-entity :source (read-next-obj lrdr))]
-            (update-in record [:sources] conj updated))))
-      record))
-
-(defn merge-source
-  "reads objects at specified columns / lines"
-  [rdr meta-infos]
-  (let [source-data {:lrdr (LineNumberReader. rdr), :sources []}]
-    (if-let [result (reduce read-entity-source source-data meta-infos)]
-      (:sources result)
-      meta-infos)))
-
 (defn source-for-symbol
   [sym & [file]]
 
@@ -79,24 +46,10 @@
   (if-let [file-data (some-> (analyzed-data-of-def sym file)
                        (select-keys [:column :line :file]))]
     (let [def-file (:file file-data)
-           rdr (if (sf/jar-clojure-url-string? def-file)
-                 (sf/jar-url->reader def-file)
-                 (io/reader def-file))]
+           rdr (sf/source-reader-for-ns ns-name def-file #"\.cljs$")]
       (some->> [file-data]
-        (merge-source rdr)
+        (src-rdr/add-source-to-interns-with-reader rdr)
         first :source))))
-
-
-(defn source-reader-for-ns
-  [ns-name & [file]]
-  (if-let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
-    (if (sf/jar-clojure-url-string? file)
-      (sf/jar-url->reader file)
-      (io/reader file))))
-
-(defn source-for-ns
-  [sym & [file]]
-  (slurp (source-reader-for-ns sym file)))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
@@ -263,7 +216,7 @@
   (let [ns-name (symbol (namespace sym))
         file (or file (fm/find-file-for-ns-on-cp ns-name))
         info (analyzed-data-of-def sym file)
-        old-file-src (source-for-ns ns-name file)
+        old-file-src (sf/source-for-ns ns-name file #".cljs$")
         old-src (source-for-symbol sym file)]
 
     (if-not old-file-src
@@ -305,7 +258,7 @@
 
 (defn change-ns!
   [ns-name new-source & [write-to-file file]]
-  (if-let [old-src (source-for-ns ns-name file)]
+  (if-let [old-src (sf/source-for-ns ns-name file #".cljs$")]
     (do
       (if write-to-file
         (when-let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
@@ -336,7 +289,7 @@
  (reset! cljs-env {})
  (namespace-info 'rksm.test)
 
- (def file (first (rksm.cloxp-cljs.filemapping/cljs-files-in-cp-dirs)))
+ (def file (first (rksm.system-files/find-namespaces-on-cp #"\.cljs$")))
  (ana/forms-seq file)
 
  (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
