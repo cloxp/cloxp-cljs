@@ -48,7 +48,7 @@
   
   (is (= "(defn ^:export foo
   [x]
-  (+ x 29))"
+  (+ x 29))\n"
          (source-for-symbol 'rksm.test/foo))))
 
 (deftest source-for-ns-test
