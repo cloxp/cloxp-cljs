@@ -196,7 +196,7 @@
         ns-sym (symbol (namespace sym))
         file (or file (fm/find-file-for-ns-on-cp ns-sym))
         old-file-src (slurp file)
-        new-file-src (sf/updated-source sym info new-source old-src old-file-src)]
+        new-file-src (src-rdr/updated-source sym info new-source old-src old-file-src)]
     (spit file new-file-src)))
 
 (defn eval-and-update-meta!
@@ -225,7 +225,7 @@
     ; 1. update file and analyzed data
     (if write-to-file
       (when file
-        (let [new-file-src (sf/updated-source sym info new-source old-src old-file-src)]
+        (let [new-file-src (src-rdr/updated-source sym info new-source old-src old-file-src)]
           (spit file new-file-src)
           (analyze-cljs-ns! ns-name)
           (if *compile?*
