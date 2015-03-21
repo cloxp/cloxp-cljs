@@ -75,7 +75,7 @@
 
 (defn ^:export foo
   [x]
-  (+ x 32))\n"]
+  (+ x 32))"]
     (change-def! 'rksm.test/foo new-src true)
     (is (= expected-src (slurp test-file)))))
 
