@@ -1,33 +1,41 @@
 (ns rksm.cloxp-cljs.compilation
   (:require [clojurescript-build.core :as cljsb]
             [rksm.system-files.fs-util :as fs-util]
+            [rksm.cloxp-cljs.filemapping :refer [cp-dirs-with-cljs]]
             [clojure.java.io :as io]
             [clojure.string :as s]
             [cljs.closure :as cljsc]
             [cljs.env :as env]
-            [rksm.cloxp-cljs.filemapping :refer [cp-dirs-with-cljs]]))
+            [leiningen.core.project :as lein-proj]
+            [leiningen.cljsbuild.config :as cljs-config]))
 
 (def ^{:dynamic true} *optimizations* :none)
+
+(defn default-build-options
+  [project-dir]
+  (let [target-dir (.getCanonicalPath (io/file (str project-dir "/cloxp-cljs-build/")))
+        target-file (str target-dir java.io.File/separator "cloxp-cljs.js")
+        out-dir (str target-dir java.io.File/separator "out")
+        source-map-file (str target-file ".map")]
+    {:output-to target-file
+     :output-dir out-dir
+     :optimizations :none
+     :cache-analysis true
+     ;; :source-map true
+     :warnings true}))
 
 (defonce builds (atom {}))
 
 (defn- cljs-source-paths
   [project-dir]
-  (fs-util/remove-parent-paths
-  (keys (cp-dirs-with-cljs project-dir))))
+  (->> (cp-dirs-with-cljs project-dir)
+    keys
+    fs-util/remove-parent-paths
+    (map #(.getCanonicalPath %))))
 
 (defn compile-cljs-in-project
   [project-dir & [compiler-env]]
-  (let [target-dir (.getCanonicalPath (io/file (str project-dir "/cloxp-cljs-build/")))
-        target-file (str target-dir java.io.File/separator "cloxp-cljs.js")
-        out-dir (str target-dir java.io.File/separator "out")
-        source-map-file (str target-file ".map")
-        build-opts {:output-to target-file
-                    :output-dir out-dir
-                    :optimizations :none
-                    :cache-analysis true
-                    ;; :source-map true
-                    :warnings true}
+  (let [build-opts (default-build-options project-dir)
         cljs-source-paths (cljs-source-paths project-dir)
         compiler-env (or compiler-env (env/default-compiler-env))]
     (env/with-compiler-env compiler-env

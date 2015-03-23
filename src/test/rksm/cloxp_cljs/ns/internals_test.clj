@@ -3,7 +3,8 @@
             [rksm.cloxp-cljs.ns.internals :refer :all]
             [rksm.system-files :as sf]))
 
-(defonce test-file "/Users/robert/clojure/cloxp-cljs/src/cljs/rksm/test.cljs")
+(defonce test-file "src/cljs/rksm/test.cljs")
+
 (defonce orig-source "(ns rksm.test
   (:require [clojure.string :as s]
             [clojure.set :refer (union)]))
@@ -13,6 +14,7 @@
 (defn ^:export foo
   [x]
   (+ x 29))\n")
+
 (defonce sep java.io.File/separator)
 
 (defn source-state-fixture [test]
@@ -30,10 +32,10 @@
   (is (= {:interns
           [{:name "foo",
             :ns "rksm.test",
-            :line 7,
+            :line 8,
             :column 1,
-            :file test-file}],
-          :file test-file,
+            :file (.getCanonicalPath (clojure.java.io/file test-file))}],
+          :file (.getCanonicalPath (clojure.java.io/file test-file)),
           :imports nil,
           :requires {'clojure.string 'clojure.string
                      's 'clojure.string
@@ -62,7 +64,7 @@
 ;     (is (= new-src (slurp test-file))))  
 ;   )
 
-(deftest change-def-test
+#_(deftest change-def-test
 
   (let [new-src "(defn ^:export foo
   [x]
@@ -117,7 +119,7 @@
 (comment
 
  (reset! rksm.cloxp-cljs.ns.internals/cljs-env {})
- (run-tests 'rksm.cloxp-cljs.ns.internals-test)
+ (run-tests *ns*)
  (test-var #'rksm.cloxp-cljs.ns.internals-test/change-def-test)
 
  (-> (rksm.cloxp-cljs.ns.internals/ensure-default-cljs-env) :compiler-env deref)

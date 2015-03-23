@@ -35,18 +35,17 @@
 
 (defn source-for-symbol
   [sym & [file]]
-
   ; ensure we have analyzed data for ns of sym
   (let [ns-name (symbol (namespace sym))] 
     (if-not (get-in
              @(:compiler-env (ensure-default-cljs-env))
              [:cljs.analyzer/namespaces ns-name])
       (ensure-ns-analyzed! ns-name)))
-
   (if-let [file-data (some-> (analyzed-data-of-def sym file)
-                       (select-keys [:column :line :file]))]
+                       (select-keys [:column :line :file :name])
+                       (update-in [:name] (comp symbol name)))]
     (let [def-file (:file file-data)
-           rdr (sf/source-reader-for-ns ns-name def-file #"\.cljs$")]
+          rdr (sf/source-reader-for-ns ns-name def-file #"\.cljs$")]
       (some->> [file-data]
         (src-rdr/add-source-to-interns-with-reader rdr)
         first :source))))
@@ -117,8 +116,7 @@
   [ns-name & [file]]
   (let [file (or file (fm/find-file-for-ns-on-cp ns-name))
         cenv (:compiler-env (ensure-default-cljs-env))]
-    (if-let [
-             data (analyze-cljs-ns! ns-name)
+    (if-let [data (analyze-cljs-ns! ns-name)
             ;  data (env/with-compiler-env cenv
             ;         (if file
             ;           (ana/analyze-file
@@ -129,10 +127,15 @@
             ;           :cljs.analyzer/namespaces
             ;           (get ns-name)))
              ]
-      (-> data
-        (select-keys [:name :doc :excludes :use :require :uses :requires :imports])
-        (assoc :file (if file (str file)))
-        (assoc :interns (reverse (map intern-info (vals (:defs data)))))))))
+      (let [interns (->> (:defs data) vals (map intern-info) reverse)
+            ; interns-2 (src-rdr/add-source-to-interns-with-reader
+            ;           (sf/source-reader-for-ns ns-name file)
+            ;           interns {:file file})
+            ]
+        (-> data
+          (select-keys [:name :doc :excludes :use :require :uses :requires :imports])
+          (assoc :file (if file (str file)))
+          (assoc :interns interns))))))
 
 (defn stringify [obj]
   (cond
