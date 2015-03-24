@@ -32,7 +32,7 @@
   (is (= {:interns
           [{:name "foo",
             :ns "rksm.test",
-            :line 8,
+            :line 7,
             :column 1,
             :file (.getCanonicalPath (clojure.java.io/file test-file))}],
           :file (.getCanonicalPath (clojure.java.io/file test-file)),
@@ -64,7 +64,7 @@
 ;     (is (= new-src (slurp test-file))))  
 ;   )
 
-#_(deftest change-def-test
+(deftest change-def-test
 
   (let [new-src "(defn ^:export foo
   [x]
