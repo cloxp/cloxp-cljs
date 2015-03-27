@@ -36,21 +36,21 @@
 
 (comment
  (deftest source-for-symbol-test
-  
+
   (is (= "(defn ^:export foo
   [x]
   (+ x 29))\n"
          (source-for-symbol 'rksm.test/foo))))
 
 (deftest source-for-ns-test
-  
+
   (is (= orig-source
          (sf/source-for-ns 'rksm.test nil #"\.cljs$"))))
 
 ; (deftest change-ns-test
 ;   (let [new-src "(ns rksm.test\n  ; (:require [clojure.string :as s])\n  )\n\n(js/alert \"Running!\")\n\n(defn foo\n  [x]\n  (+ x 24))"]
 ;     (change-ns! 'rksm.test new-src true)
-;     (is (= new-src (slurp test-file))))  
+;     (is (= new-src (slurp test-file))))
 ;   )
 
 (deftest change-def-test
@@ -85,7 +85,7 @@
   (testing "refered"
     (is (= {:name 'clojure.set/union :ns 'clojure.set}
            (select-keys (symbol-info-for-sym 'rksm.test 'union) [:name :ns]))))
-  
+
   (testing "refered qualified"
     (is (= {:name 'clojure.set/union :ns 'clojure.set}
            (select-keys (symbol-info-for-sym 'rksm.test 'clojure.set/union) [:name :ns]))))
