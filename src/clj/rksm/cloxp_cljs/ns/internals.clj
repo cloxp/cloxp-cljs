@@ -24,7 +24,7 @@
      (let [env {:analyzer-env (atom (merge (ana/empty-env) {:ns 'cljs.user}))
                 :compiler-env env/*compiler*}]
        (swap! cljs-env assoc :default env)
-       (if-not (some-> env :compiler-env deref
+      (if-not (some-> env :compiler-env deref
                  :cljs.analyzer/namespaces (get 'cljs.core))
          (ensure-ns-analyzed! 'cljs.core))
        env))))
@@ -179,25 +179,28 @@ associated with interns, off by +1"} intern-line-offset -1)
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (defn analyze-cljs-ns!
-  [ns-sym]
+  [ns-sym & [file]]
+  (create-ns ns-sym)
   (let [cenv-atom (or env/*compiler* (:compiler-env (ensure-default-cljs-env)) (env/default-compiler-env))
-        path (fm/find-file-for-ns-on-cp ns-sym)
-        rel-path (sf/ns-name->rel-path ns-sym ".cljs")
+        file (or file (fm/find-file-for-ns-on-cp ns-sym))
         cljs-ana-file (cond
-                        (nil? path) nil
-                        (and (string? path) (re-find #"^jar:" path)) rel-path
-                        :default (clojure.java.io/file path))]
+                        (instance? java.io.File file) file
+                        (or (nil? file)
+                            (and (string? file) (re-find #"^jar:" file))) (sf/ns-name->rel-path ns-sym ".cljs")
+                        :default (io/file file))
+        ; cljx? (and cljs-ana-file (re-find #"\.cljx$" (str cljs-ana-file)))
+        ]
     (env/with-compiler-env cenv-atom
       (env/ensure
        ; first pass: ensure that dependencies are analyzed
        (if-not (-> env/*compiler* deref :cljs.analyzer/namespaces (get ns-sym))
-         (ana/no-warn (cljs.analyzer/analyze-file cljs-ana-file {:cache-analysis true})))
+         (ana/no-warn (cljs.analyzer/analyze-file cljs-ana-file {:cache-analysis false})))
        (swap! env/*compiler*
               (fn [cenv]
                 (update-in cenv [:cljs.analyzer/namespaces] #(dissoc % ns-sym))
                 (update-in cenv [:cljs.analyzer/analyzed-cljs] #(dissoc % cljs-ana-file))))
        ; second pass: there might be warnings
-       (cljs.analyzer/analyze-file cljs-ana-file {:cache-analysis true})
+       (cljs.analyzer/analyze-file cljs-ana-file {:cache-analysis false})
        (-> env/*compiler* deref
          :cljs.analyzer/namespaces (get ns-sym))))))
 

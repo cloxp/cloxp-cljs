@@ -1,6 +1,7 @@
 (ns rksm.cloxp-cljs.filemapping
   (:require [rksm.system-files :as sf]
-            [rksm.system-files.fs-util :as fs]))
+            [rksm.system-files.fs-util :as fs]
+            [clojure.java.io :as io]))
 
 (defn cp-dirs-with-cljs
   "Returns a map of dir/files, dir being the classpath, files being cljs files
@@ -20,18 +21,33 @@
           (into {})))
       map)))
 
+(defn- find-file-in-cp-dirs
+  [filename]
+  (let [path (sf/ns-name->rel-path ns-name ".cljs")]
+    (some->> (cp-dirs-with-cljs)
+      (mapcat (fn [[dir files]]
+                (filter 
+                 #(= filename (fs/path-relative-to dir (.getCanonicalPath %)))
+                 files)))
+      first
+      .getCanonicalPath)))
+
 (defn find-file-for-ns-on-cp
   [ns-name]
-  (or
-   (let [path (sf/ns-name->rel-path ns-name ".cljs")]
-     (some->> (cp-dirs-with-cljs)
-       (mapcat (fn [[dir files]]
-                 (filter 
-                  #(= path (fs/path-relative-to dir (.getCanonicalPath %)))
-                  files)))
-       first
-       .getCanonicalPath))
-   (sf/jar-url-for-ns ns-name ".cljs")))
+  (if-let [file (or
+                 (find-file-in-cp-dirs (sf/ns-name->rel-path ns-name ".cljs"))
+                 (find-file-in-cp-dirs (sf/ns-name->rel-path ns-name ".cljx"))
+                 (sf/jar-url-for-ns ns-name ".cljs")
+                 (sf/file-for-ns ns-name nil #"\.clj(s|x)$"))]
+    (let [file-name (if (string? file) file (.getCanonicalPath file))]
+     (cond
+       (and
+        (re-find #"^file:" file-name)
+        (not (re-find #"\.jar$" file-name)))
+       (io/file (second (re-find #"^file:(.*)" file-name)))
+       (re-find #"\.cljx$" file-name)
+       (doto (rksm.system-files.cljx.File. file-name) (.changeMode :cljs))
+       :default file-name))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
