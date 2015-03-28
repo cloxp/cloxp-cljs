@@ -1,14 +1,18 @@
 (ns rksm.cloxp-cljs.ns.cljx-test
   (:require [clojure.test :refer :all]
-            [rksm.cloxp-cljs.ns.internals :refer :all]
+            [rksm.cloxp-cljs.filemapping :refer [find-file-for-ns-on-cp cp-dirs-with-cljs]]
+            [rksm.cloxp-cljs.ns.internals :refer [ensure-ns-analyzed!
+                                                  namespace-info
+                                                   change-def!
+                                                ;   source-for-symbol symbol-info-for-sym
+                                                  ]]
             [rksm.system-files :as sf]
-            [rksm.system-files.cljx :as sfx]))
+            [rksm.system-files.cljx :as sfx]
+            [clojure.java.io :as io]))
 
 (defonce test-file "src/test/rksm/cloxp_cljs/test_resources/test_cljx.cljx")
 
 (defonce orig-source (slurp test-file))
-
-(defonce sep java.io.File/separator)
 
 (defn source-state-fixture [test]
   (sfx/enable-cljx-load-support!)
@@ -18,6 +22,17 @@
   (reset! rksm.cloxp-cljs.ns.internals/cljs-env {}))
 
 (use-fixtures :each source-state-fixture)
+
+(deftest namespace-file-discorvery
+  (is (= (-> test-file io/file .getCanonicalPath)
+         (str (find-file-for-ns-on-cp 'rksm.cloxp-cljs.test-resources.test-cljx))))
+  (is (= [(.getCanonicalPath (io/file "src/cljs/rksm/test.cljs"))
+          (.getCanonicalPath (io/file "src/test/rksm/cloxp_cljs/test_resources/test_cljx.cljx"))]
+         (->> (cp-dirs-with-cljs)
+           vals
+           (apply concat)
+           (map str)
+           (filter (partial re-find #"cloxp-cljs/"))))))
 
 (deftest namespace-info-test
   (is (= {:interns
@@ -33,6 +48,13 @@
           :uses nil,
           :name 'rksm.cloxp-cljs.test-resources.test-cljx}
          (namespace-info 'rksm.cloxp-cljs.test-resources.test-cljx))))
+
+(deftest change-def-test
+
+  (let [new-src "(defn x-to-string\n  [x]\n  \"foo\")"
+        expected-src "(ns rksm.cloxp-cljs.test-resources.test-cljx)\n\n(defn x-to-string\n  [x]\n  \"foo\")"]
+    (change-def! 'rksm.cloxp-cljs.test-resources.test-cljx/x-to-string new-src true)
+    (is (= expected-src (slurp test-file)))))
 
 (comment
  (deftest source-for-symbol-test
@@ -53,22 +75,7 @@
 ;     (is (= new-src (slurp test-file))))
 ;   )
 
-(deftest change-def-test
 
-  (let [new-src "(defn ^:export foo
-  [x]
-  (+ x 32))\n"
-        expected-src "(ns rksm.test
-  (:require [clojure.string :as s]
-            [clojure.set :refer (union)]))
-
-(js/alert (.toUpperCase \"Running 3!\"))
-
-(defn ^:export foo
-  [x]
-  (+ x 32))"]
-    (change-def! 'rksm.test/foo new-src true)
-    (is (= expected-src (slurp test-file)))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -106,9 +113,9 @@
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (comment
+ (run-tests *ns*)
 
  (reset! rksm.cloxp-cljs.ns.internals/cljs-env {})
- (run-tests *ns*)
  (test-var #'rksm.cloxp-cljs.ns.internals-test/change-def-test)
 
  (-> (rksm.cloxp-cljs.ns.internals/ensure-default-cljs-env) :compiler-env deref)

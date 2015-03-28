@@ -1,7 +1,9 @@
 (ns rksm.cloxp-cljs.ns.internals-test
   (:require [clojure.test :refer :all]
             [rksm.cloxp-cljs.ns.internals :refer :all]
-            [rksm.system-files :as sf]))
+            [rksm.cloxp-cljs.filemapping :as fm]
+            [rksm.system-files :as sf]
+            [clojure.java.io :as io]))
 
 (defonce test-file "src/cljs/rksm/test.cljs")
 
@@ -26,6 +28,10 @@
 (use-fixtures :each source-state-fixture)
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+(deftest namespace-file-discorvery
+  (is (= (-> test-file io/file .getCanonicalPath)
+         (-> 'rksm.test fm/find-file-for-ns-on-cp .getCanonicalPath))))
 
 (deftest namespace-info-test
   
@@ -118,8 +124,9 @@
 
 (comment
 
- (reset! rksm.cloxp-cljs.ns.internals/cljs-env {})
  (run-tests *ns*)
+
+ (reset! rksm.cloxp-cljs.ns.internals/cljs-env {})
  (test-var #'rksm.cloxp-cljs.ns.internals-test/change-def-test)
 
  (-> (rksm.cloxp-cljs.ns.internals/ensure-default-cljs-env) :compiler-env deref)
