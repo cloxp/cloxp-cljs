@@ -4,6 +4,7 @@
             [rksm.cloxp-cljs.filemapping :as fm]
             [rksm.cloxp-cljs.compilation :as comp]
             [rksm.system-files :as sf]
+            [rksm.system-files.cljx.File :as sfx]
             [rksm.cloxp-source-reader.core :as src-rdr]
             [clojure.data.json :as json]
             [clojure.string :as s]
@@ -45,9 +46,10 @@
       (if-let [file-data (some-> (analyzed-data-of-def sym file)
                            (select-keys [:column :line :file :name])
                            (update-in [:name] (comp symbol name)))]
-        (let [rdr (sf/source-reader-for-ns ns-name file #"\.clj(s|x)$")]
-          (binding [tr/*data-readers* cljs-literals/*cljs-data-readers*
-                    tr/*alias-map* (apply merge ((juxt :requires :require-macros) file-data))]
+        (binding [tr/*data-readers* cljs-literals/*cljs-data-readers*
+                  tr/*alias-map* (apply merge ((juxt :requires :require-macros) file-data))
+                  sfx/*output-mode* :cljx]
+          (let [rdr (sf/source-reader-for-ns ns-name file #"\.clj(s|x)$")]
             (some->> [file-data]
               (src-rdr/add-source-to-interns-with-reader rdr)
               first :source)))))))
@@ -79,8 +81,6 @@ associated with interns, off by +1"} intern-line-offset -1)
     (select-keys [:file :column :line])
     (assoc :ns (namespace qname) :name (name qname))
     (update-in [:line] + intern-line-offset)))
-
-; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (defn symbol-info-for-macro
   [ns-name name]
