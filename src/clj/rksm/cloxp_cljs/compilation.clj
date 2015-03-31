@@ -57,6 +57,16 @@
         (swap! builds assoc project-dir build)
         build))))
 
+; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+; cljs build related
+
+(defonce cljsbuild-reload-lib-orig clojurescript-build.core/reload-lib)
+
+(defn patch-cljs-build-reload
+  []
+  (alter-var-root
+   #'clojurescript-build.core/reload-lib
+   (fn [_] (fn [resource]))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ; DEPRECATED (?)
