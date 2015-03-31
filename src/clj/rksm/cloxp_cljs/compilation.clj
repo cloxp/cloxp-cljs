@@ -41,7 +41,7 @@
     (let [out-file (io/file (str project-dir "/target/classes/"
                                  (sf/ns-name->rel-path ns-name ".cljs")))]
       (-> out-file .getParentFile .mkdirs)
-      (spit out-file (.getClj (sf/file file))))))
+      (spit out-file (.getCljs (sf/file file))))))
 
 (defn compile-cljs-in-project
   [changed-ns file project-dir & [compiler-env]]
