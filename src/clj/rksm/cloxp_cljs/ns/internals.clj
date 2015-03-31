@@ -103,9 +103,11 @@ associated with interns, off by +1"} intern-line-offset -1)
                       (if (cljs.env/with-compiler-env cenv
                             (ana/core-name? lenv sym-name)) 'cljs.core))
               macro-ns (or
+                        (and (some-> source-ns-data :macros (get sym-name)) ns-name)
                         (some-> source-ns-data :require-macros (get sym-ns))
                         (some-> source-ns-data :use-macros (get sym-name)))
-              full-sym-ns (or (some-> source-ns-data :requires (get sym-ns))
+              full-sym-ns (or (and (some-> source-ns-data :defs (get sym-name)) ns-name)
+                              (some-> source-ns-data :requires (get sym-ns))
                               (some-> source-ns-data :uses (get sym-name))
                               sym-ns)
               qname (if full-sym-ns
@@ -113,7 +115,8 @@ associated with interns, off by +1"} intern-line-offset -1)
                       sym-name)]
           (if macro-ns
             (symbol-info-for-macro macro-ns sym-name)
-            (analyzed-data-of-def qname file)))))))
+            (if (or full-sym-ns sym-ns)
+              (analyzed-data-of-def qname file))))))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
