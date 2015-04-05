@@ -4,3 +4,4 @@
 /cloxp-cljs-build/
 /.lein-failures
 /.nrepl-port
+/pom.xml.asc
