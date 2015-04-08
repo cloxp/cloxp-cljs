@@ -37,8 +37,9 @@
 
 (defn compile-cljs-in-project
   [changed-ns file project-dir & [compiler-env]]
-  (if changed-ns
-    (cljx/ns-compile-cljx->cljs changed-ns file project-dir))
+  (when (and changed-ns (re-find #"\.cljx$" (str file)))
+    (cljx/ns-compile-cljx->cljs changed-ns file project-dir)
+    (cljx/require-ns changed-ns (str file)))
   (let [build-opts (default-build-options project-dir)
         cljs-source-paths (cljs-source-paths project-dir)
         compiler-env (or compiler-env (env/default-compiler-env))]
