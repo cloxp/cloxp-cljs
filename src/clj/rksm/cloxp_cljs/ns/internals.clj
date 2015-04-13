@@ -4,7 +4,9 @@
             [rksm.cloxp-cljs.filemapping :as fm]
             [rksm.cloxp-cljs.compilation :as comp]
             [rksm.system-files :as sf]
-            [rksm.system-files.cljx.File :as sfx]
+            [rksm.system-files.jar-util :as jar]
+            [rksm.system-files.cljx :as sfx]
+            [rksm.system-files.cljx.File :as sfx-file]
             [rksm.cloxp-source-reader.core :as src-rdr]
             [clojure.data.json :as json]
             [clojure.string :as s]
@@ -48,7 +50,7 @@
                            (update-in [:name] (comp symbol name)))]
         (binding [tr/*data-readers* cljs-literals/*cljs-data-readers*
                   tr/*alias-map* (apply merge ((juxt :requires :require-macros) file-data))
-                  sfx/*output-mode* :cljx]
+                  sfx-file/*output-mode* :cljx]
           (let [rdr (sf/source-reader-for-ns ns-name file #"\.clj(s|x)$")]
             (some->> [file-data]
               (src-rdr/add-source-to-interns-with-reader rdr)
@@ -123,7 +125,7 @@ associated with interns, off by +1"} intern-line-offset -1)
 (defn namespace-info
   [ns-name & [file]]
   (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
-    (if-let [data (analyze-cljs-ns! ns-name)
+    (if-let [data (analyze-cljs-ns! ns-name file)
              ;  data (env/with-compiler-env cenv
              ;         (if file
              ;           (ana/analyze-file
@@ -190,8 +192,14 @@ associated with interns, off by +1"} intern-line-offset -1)
   (create-ns ns-sym)
   (let [cenv-atom (or env/*compiler* (:compiler-env (ensure-default-cljs-env)) (env/default-compiler-env))
         file (fm/find-file-for-ns-on-cp ns-sym file)
-        ; cljx? (and cljs-ana-file (re-find #"\.cljx$" (str cljs-ana-file)))
-        ]
+        ; FIXME: right now jar files won't support the auto cljx translation,
+        ; try to find cljs file instead
+        file (if (and (jar/jar-url-string?
+                       (-> (if (string? file) file (str (.getCanonicalPath file)))))
+                      (sfx/cljx-file? file))
+               (sf/file-for-ns ns-sym nil #"\.cljs")
+               file)]
+    [ns-sym file]
     (if-not file (throw (Exception. (str "Cannot find cljs or cljx file for namespace " ns-sym))))
     (env/with-compiler-env cenv-atom
       (env/ensure
