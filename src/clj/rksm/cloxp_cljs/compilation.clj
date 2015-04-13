@@ -4,6 +4,7 @@
             [rksm.system-files.fs-util :as fs-util]
             [rksm.system-files.cljx :as cljx]
             [rksm.cloxp-cljs.filemapping :refer [cp-dirs-with-cljs]]
+            [rksm.cloxp-repl :as repl]
             [clojure.java.io :as io]
             [clojure.string :as s]
             [cljs.closure :as cljsc]
@@ -36,10 +37,10 @@
     (map #(.getCanonicalPath %))))
 
 (defn compile-cljs-in-project
-  [changed-ns file project-dir & [compiler-env]]
-  (when (and changed-ns (re-find #"\.cljx$" (str file)))
+  [changed-ns file project-dir new-source old-source & [compiler-env]]
+  (when (and changed-ns (cljx/cljx-file? file))
     (cljx/ns-compile-cljx->cljs changed-ns file project-dir)
-    (cljx/require-ns changed-ns (str file)))
+    (repl/load-file new-source (str file) {:old-source old-source}))
   (let [build-opts (default-build-options project-dir)
         cljs-source-paths (cljs-source-paths project-dir)
         compiler-env (or compiler-env (env/default-compiler-env))]
