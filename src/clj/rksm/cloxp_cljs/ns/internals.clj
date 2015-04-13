@@ -249,8 +249,8 @@ associated with interns, off by +1"} intern-line-offset -1)
           (spit file new-file-src)
           (if *compile?*
             (comp/compile-cljs-in-project
-             ns-name file
-             (.getCanonicalPath (io/file "."))
+             ns-name file (.getCanonicalPath (io/file "."))
+             new-file-src old-file-src
              (:compiler-env (ensure-default-cljs-env))))
           (analyze-cljs-ns! ns-name file))))
     
@@ -279,20 +279,21 @@ associated with interns, off by +1"} intern-line-offset -1)
 
 (defn change-ns!
   [ns-name new-source & [write-to-file file]]
-  (if-let [old-src (sf/source-for-ns ns-name file #".cljs$")]
-    (do
-      (if write-to-file
-        (when-let [file (fm/find-file-for-ns-on-cp ns-name file)]
-          (spit file new-source)
-          (analyze-cljs-ns! ns-name file)
-          (if *compile?* (comp/compile-cljs-in-project
-                          ns-name file
-                          (.getCanonicalPath (io/file "."))
-                          (:compiler-env (ensure-default-cljs-env))))))
-      (let [diff (change-ns-in-runtime! ns-name new-source old-src file)
-            change (record-change-ns! ns-name new-source old-src diff)]
-        change))
-    (throw (Exception. (str "Cannot retrieve current source for " ns-name)))))
+  (let [file (fm/find-file-for-ns-on-cp ns-name file)]
+    (if-let [old-source (sf/source-for-ns ns-name file #".clj(x|s)$")]
+      (do
+        (if write-to-file
+          (when-let [file (fm/find-file-for-ns-on-cp ns-name file)]
+            (spit file new-source)
+            (analyze-cljs-ns! ns-name file)
+            (if *compile?* (comp/compile-cljs-in-project
+                            ns-name file (.getCanonicalPath (io/file "."))
+                            new-source old-source
+                            (:compiler-env (ensure-default-cljs-env))))))
+        (let [diff (change-ns-in-runtime! ns-name new-source old-source file)
+              change (record-change-ns! ns-name new-source old-source diff)]
+          change))
+      (throw (Exception. (str "Cannot retrieve current source for " ns-name))))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
