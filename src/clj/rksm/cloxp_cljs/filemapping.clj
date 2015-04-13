@@ -37,19 +37,18 @@
 
 (defn find-file-for-ns-on-cp
   [ns-name & [file]]
-  (if file
-    (if (cljx/cljx-file? file)
-      (doto (sf/file file) (.changeMode :cljs))
-      (sf/file file))
-    (when-let [file (sf/file
+  (when-let [file (if file
+                    (sf/file file)
+                    (sf/file
                      (or
-                      (find-file-in-cp-dirs (sf/ns-name->rel-path ns-name ".cljs"))
                       (find-file-in-cp-dirs (sf/ns-name->rel-path ns-name ".cljx"))
+                      (find-file-in-cp-dirs (sf/ns-name->rel-path ns-name ".cljs"))
+                      (jar/jar-url-for-ns ns-name ".cljx")
                       (jar/jar-url-for-ns ns-name ".cljs")
-                      (sf/file-for-ns ns-name nil #"\.clj(s|x)$")))]
-      (if (instance? rksm.system-files.cljx.File file)
-        (doto file (.changeMode :cljs))
-        file))))
+                      (sf/file-for-ns ns-name nil #"\.clj(s|x)$"))))]
+    (if (instance? rksm.system-files.cljx.File file)
+      (doto file (.changeMode :cljs)))
+    file))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
