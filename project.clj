@@ -1,4 +1,4 @@
-(defproject org.rksm/cloxp-cljs "0.1.7"
+(defproject org.rksm/cloxp-cljs "0.1.8"
   :description "cloxp-cljs"
   :license {:name "MIT License"
             :url "http://opensource.org/licenses/MIT"}
@@ -6,7 +6,7 @@
                  [org.clojure/clojurescript "0.0-3211"]
                  [org.rksm/system-files "0.1.5"]
                  [org.rksm/cloxp-source-reader "0.1.6"]
-                 [org.rksm/cloxp-repl "0.1.6"]
+                 [org.rksm/cloxp-repl "0.1.7"]
                  [clojurescript-build/clojurescript-build "0.1.5"]
                  [lein-cljsbuild "1.0.5"]
                  [leiningen/leiningen "2.5.1"]]
