@@ -11,7 +11,8 @@
             [rksm.system-files.cljx :as sfx]
             [clojure.java.io :as io]))
 
-(defonce test-file "src/test/rksm/cloxp_cljs/test_resources/test_cljx.cljx")
+(defonce test-file
+  (-> "src/test/rksm/cloxp_cljs/test_resources/test_cljx.cljx" io/file .getCanonicalFile))
 
 (defonce orig-source (slurp test-file))
 
@@ -27,7 +28,7 @@
 (use-fixtures :each source-state-fixture)
 
 (deftest namespace-file-discorvery
-  (is (= (-> test-file io/file .getCanonicalPath)
+  (is (= (-> test-file .getCanonicalPath)
          (str (find-file-for-ns-on-cp 'rksm.cloxp-cljs.test-resources.test-cljx))))
   (is (= [(.getCanonicalPath (io/file "src/cljs/rksm/test.cljs"))
           (.getCanonicalPath (io/file "src/test/rksm/cloxp_cljs/test_resources/test_cljx.cljx"))]
@@ -42,8 +43,8 @@
           [{:name "x-to-string",
             :ns "rksm.cloxp-cljs.test-resources.test-cljx",
             :line 3, :column 1,
-            :file (.getCanonicalPath (clojure.java.io/file test-file))}],
-          :file (.getCanonicalPath (clojure.java.io/file test-file)),
+            :file (.getCanonicalPath test-file)}],
+          :file (.getCanonicalPath test-file),
           :doc nil,
           :imports nil,
           :excludes #{},

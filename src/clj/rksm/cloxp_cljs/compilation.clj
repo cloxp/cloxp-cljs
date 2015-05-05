@@ -24,7 +24,7 @@
      :output-dir out-dir
      :optimizations :none
      :cache-analysis true
-     ;; :source-map true
+     :source-map source-map-file
      :warnings true}))
 
 (defonce builds (atom {}))
@@ -43,7 +43,7 @@
     (repl/load-file new-source (str file) {:old-source old-source}))
   (let [build-opts (default-build-options project-dir)
         cljs-source-paths (cljs-source-paths project-dir)
-        compiler-env (or compiler-env (env/default-compiler-env))]
+        compiler-env (or compiler-env env/*compiler* (env/default-compiler-env))]
     (env/with-compiler-env compiler-env
       (let [build (if-let [build (get @builds project-dir)]
                     (cljsb/build-source-paths* build)

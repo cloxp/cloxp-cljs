@@ -122,6 +122,25 @@ associated with interns, off by +1"} intern-line-offset -1)
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+(defn- transform-namespace-data
+  "for add all info cloxp needs. data comes
+  from env/*compiler* :cljs.analyzer/namespaces"
+  [data & [file]]
+  (some-> data
+    (select-keys [:name :doc :excludes :use :require :uses :requires :imports])
+    (assoc :file (if file (str file)))
+    (assoc :interns (->> (:defs data) vals (map intern-info) reverse))))
+
+(defn read-namespace-info
+  [ns-sym & [file]]
+  (let [cenv-atom (or env/*compiler*
+                      (:compiler-env (ensure-default-cljs-env))
+                      (env/default-compiler-env))
+        data (env/with-compiler-env cenv-atom
+               (-> env/*compiler* deref
+                 :cljs.analyzer/namespaces (get ns-sym)))]
+    (transform-namespace-data data file)))
+
 (defn namespace-info
   [ns-name & [file]]
   (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
@@ -136,19 +155,7 @@ associated with interns, off by +1"} intern-line-offset -1)
              ;           :cljs.analyzer/namespaces
              ;           (get ns-name)))
              ]
-      (let [interns (->> (:defs data) vals (map intern-info) reverse)
-            ; interns-2 (binding [*ns* (find-ns ns-name)
-            ;                     tr/*data-readers* cljs.tagged-literals/*cljs-data-readers*
-            ;                     tr/*alias-map* (apply merge ((juxt :requires :require-macros) data))
-            ;                     ]
-            ;             (src-rdr/add-source-to-interns-with-reader
-            ;              (sf/source-reader-for-ns ns-name file)
-            ;              interns {:file file}))
-            ]
-        (-> data
-          (select-keys [:name :doc :excludes :use :require :uses :requires :imports])
-          (assoc :file (if file (str file)))
-          (assoc :interns interns))))))
+      (transform-namespace-data data file))))
 
 (defn stringify [obj]
   (cond
