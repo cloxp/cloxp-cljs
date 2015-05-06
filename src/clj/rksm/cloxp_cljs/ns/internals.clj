@@ -1,6 +1,7 @@
 (ns rksm.cloxp-cljs.ns.internals
   (:require [cljs.analyzer :as ana]
             [cljs.env :as env]
+            [cljs.analyzer.api :as ana-api]
             [rksm.cloxp-cljs.filemapping :as fm]
             [rksm.cloxp-cljs.compilation :as comp]
             [rksm.system-files :as sf]
@@ -16,7 +17,8 @@
             [clojure.java.io :as io])
   (:import (java.io LineNumberReader PushbackReader File)))
 
-(declare ensure-ns-analyzed! analyzed-data-of-def analyze-cljs-ns!)
+(declare ensure-ns-analyzed! analyzed-data-of-def analyze-cljs-ns!
+         namespace-info)
 
 (defonce cljs-env (atom {}))
 
@@ -93,32 +95,18 @@ associated with interns, off by +1"} intern-line-offset -1)
   for the meta data of a var, rather looking up what symbol is bound to what
   thing in a given namespaces"
   [ns-name sym & [file]]
-  (let [cenv (:compiler-env (ensure-default-cljs-env))
-        lenv (assoc (ana/empty-env) :ns ns-name)
-        sym-name (symbol (name sym))]
-    (ensure-ns-analyzed! ns-name)
-    (if-let [ns-data (some-> cenv deref :cljs.analyzer/namespaces)]
-      (if-let [source-ns-data (get ns-data ns-name)]
-        (let [sym-ns (or
-                      (some-> sym namespace symbol)
-                      (if (get-in source-ns-data [:defs sym-name]) ns-name)
-                      (if (cljs.env/with-compiler-env cenv
-                            (ana/core-name? lenv sym-name)) 'cljs.core))
-              macro-ns (or
-                        (and (some-> source-ns-data :macros (get sym-name)) ns-name)
-                        (some-> source-ns-data :require-macros (get sym-ns))
-                        (some-> source-ns-data :use-macros (get sym-name)))
-              full-sym-ns (or (and (some-> source-ns-data :defs (get sym-name)) ns-name)
-                              (some-> source-ns-data :requires (get sym-ns))
-                              (some-> source-ns-data :uses (get sym-name))
-                              sym-ns)
-              qname (if full-sym-ns
-                      (symbol (str (or full-sym-ns sym-ns)) (str sym-name))
-                      sym-name)]
-          (if macro-ns
-            (symbol-info-for-macro macro-ns sym-name)
-            (if (or full-sym-ns sym-ns)
-              (analyzed-data-of-def qname file))))))))
+  (cljs.env/with-compiler-env (or env/*compiler*
+                                  (:compiler-env (ensure-default-cljs-env))
+                                  (env/default-compiler-env))
+    (let [local (-> (ana-api/empty-env)
+                  (assoc :ns (namespace-info ns-name)))
+          ref (ana-api/resolve local sym)
+          info (cond
+                 (nil? ref) nil
+                 (= [:ns :name] (keys ref)) (ana-api/ns-resolve
+                                             (:ns ref) (-> ref :name name symbol))
+                 :default ref)]
+      (some-> info (assoc :ns (-> info :name namespace symbol))))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -131,31 +119,15 @@ associated with interns, off by +1"} intern-line-offset -1)
     (assoc :file (if file (str file)))
     (assoc :interns (->> (:defs data) vals (map intern-info) reverse))))
 
-(defn read-namespace-info
-  [ns-sym & [file]]
-  (let [cenv-atom (or env/*compiler*
-                      (:compiler-env (ensure-default-cljs-env))
-                      (env/default-compiler-env))
-        data (env/with-compiler-env cenv-atom
-               (-> env/*compiler* deref
-                 :cljs.analyzer/namespaces (get ns-sym)))]
-    (transform-namespace-data data file)))
-
 (defn namespace-info
   [ns-name & [file]]
   (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
-    (if-let [data (analyze-cljs-ns! ns-name file)
-             ;  data (env/with-compiler-env cenv
-             ;         (if file
-             ;           (ana/analyze-file
-             ;           (if (sf/jar-clojure-url-string? file)
-             ;              (java.net.URL. file)
-             ;              (io/file file))))
-             ;         (some-> env/*compiler* deref
-             ;           :cljs.analyzer/namespaces
-             ;           (get ns-name)))
-             ]
-      (transform-namespace-data data file))))
+    (cljs.env/with-compiler-env (or env/*compiler*
+                                    (:compiler-env (ensure-default-cljs-env))
+                                    (env/default-compiler-env))
+      (some-> (or (ana-api/find-ns ns-name)
+                  (analyze-cljs-ns! ns-name file))
+        (transform-namespace-data file)))))
 
 (defn stringify [obj]
   (cond
@@ -184,21 +156,17 @@ associated with interns, off by +1"} intern-line-offset -1)
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-(defn find-cljs-namespaces-in-env
-  [& [env-name]]
-  (or (if-let [env (or (and env-name (get @cljs-env env-name))
-                       (ensure-default-cljs-env))]
-        (some-> (:compiler-env env)
-          deref :cljs.analyzer/namespaces keys))
-      []))
-
-; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
 (defn analyze-cljs-ns!
   [ns-sym & [file]]
-  (create-ns ns-sym)
-  (let [cenv-atom (or env/*compiler* (:compiler-env (ensure-default-cljs-env)) (env/default-compiler-env))
+  ; have real clj namespaces represent cljs counterparts
+  (if-not (find-ns ns-sym)
+    (create-ns ns-sym))
+
+  (let [cenv-atom (or env/*compiler*
+                      (:compiler-env (ensure-default-cljs-env))
+                      (env/default-compiler-env))
         file (fm/find-file-for-ns-on-cp ns-sym file)
+
         ; FIXME: right now jar files won't support the auto cljx translation,
         ; try to find cljs file instead
         file (if (and (jar/jar-url-string?
@@ -206,34 +174,20 @@ associated with interns, off by +1"} intern-line-offset -1)
                       (sfx/cljx-file? file))
                (sf/file-for-ns ns-sym nil #"\.cljs")
                file)]
-    [ns-sym file]
     (if-not file (throw (Exception. (str "Cannot find cljs or cljx file for namespace " ns-sym))))
+
     (env/with-compiler-env cenv-atom
-      (env/ensure
-       ; first pass: ensure that dependencies are analyzed
-       (if-not (-> env/*compiler* deref :cljs.analyzer/namespaces (get ns-sym))
-         (ana/no-warn (cljs.analyzer/analyze-file file {:cache-analysis false})))
-       (swap! env/*compiler*
-              (fn [cenv]
-                (update-in cenv [:cljs.analyzer/namespaces] #(dissoc % ns-sym))
-                (update-in cenv [:cljs.analyzer/analyzed-cljs] #(dissoc % file))))
-       ; second pass: there might be warnings
-       (cljs.analyzer/analyze-file file {:cache-analysis false})
-       (-> env/*compiler* deref
-         :cljs.analyzer/namespaces (get ns-sym))))))
+      ; first pass: ensure that dependencies are analyzed
+      (if-not (ana-api/find-ns ns-sym)
+        (ana/no-warn (ana-api/analyze-file file {:cache-analysis false})))
+      (ana-api/remove-ns ns-sym)
+      ; second pass: there might be warnings
+      (ana-api/analyze-file file {:cache-analysis false})
+      (ana-api/find-ns ns-sym))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (def ^:dynamic *compile?* true)
-
-(defn update-source-file!
-  [sym new-source old-src file]
-  (let [info (analyzed-data-of-def sym file)
-        ns-sym (symbol (namespace sym))
-        file (or file (fm/find-file-for-ns-on-cp ns-sym))
-        old-file-src (slurp file)
-        new-file-src (src-rdr/updated-source sym info new-source old-src old-file-src)]
-    (spit file new-file-src)))
 
 (defn eval-and-update-meta!
   "NOT YET IMPLEMENTED"
@@ -254,25 +208,27 @@ associated with interns, off by +1"} intern-line-offset -1)
         old-file-src (sf/source-for-ns ns-name file #".cljs$")
         old-src (source-for-symbol sym file)]
 
+    (if-not file
+      (throw (Exception. (str "Cannot retrieve cljs file for " ns-name))))
+
     (if-not old-file-src
       (throw (Exception. (str "Cannot retrieve current source for " ns-name))))
 
     ; 1. update file and analyzed data
-    (if write-to-file
-      (when file
-        (let [new-file-src (src-rdr/updated-source sym info new-source old-src old-file-src)]
-          (spit file new-file-src)
-          (if *compile?*
-            (comp/compile-cljs-in-project
-             ns-name file (.getCanonicalPath (io/file "."))
-             new-file-src old-file-src
-             (:compiler-env (ensure-default-cljs-env))))
-          (analyze-cljs-ns! ns-name file))))
-    
+    (when write-to-file
+      (let [new-file-src (src-rdr/updated-source sym info new-source old-src old-file-src)]
+        (spit file new-file-src)
+        (analyze-cljs-ns! ns-name file)
+        (if *compile?*
+          (comp/compile-cljs-in-project
+           ns-name file (.getCanonicalPath (io/file "."))
+           new-file-src old-file-src
+           (:compiler-env (ensure-default-cljs-env))))))
+
     ; 2. update runtime
     (eval-and-update-meta! sym new-source)
     ; (update-source-pos-of-defs-below! sym new-source old-src)
-    
+
     ; 3. register change
     (let [change (record-change! sym new-source old-src)]
       (dissoc change :source :prev-source))))
@@ -294,21 +250,22 @@ associated with interns, off by +1"} intern-line-offset -1)
 
 (defn change-ns!
   [ns-name new-source & [write-to-file file]]
-  (let [file (fm/find-file-for-ns-on-cp ns-name file)]
-    (if-let [old-source (sf/source-for-ns ns-name file #".clj(x|s)$")]
-      (do
-        (if write-to-file
-          (when-let [file (fm/find-file-for-ns-on-cp ns-name file)]
-            (spit file new-source)
-            (analyze-cljs-ns! ns-name file)
-            (if *compile?* (comp/compile-cljs-in-project
-                            ns-name file (.getCanonicalPath (io/file "."))
-                            new-source old-source
-                            (:compiler-env (ensure-default-cljs-env))))))
-        (let [diff (change-ns-in-runtime! ns-name new-source old-source file)
-              change (record-change-ns! ns-name new-source old-source diff)]
-          change))
-      (throw (Exception. (str "Cannot retrieve current source for " ns-name))))))
+  (let [file (fm/find-file-for-ns-on-cp ns-name file)
+        old-source (sf/source-for-ns ns-name file #".clj(x|s|c)$")]
+    (when-not file
+      (throw (Exception. (str "Cannot retrieve cljs file for " ns-name))))
+    (when-not old-source
+      (throw (Exception. (str "Cannot retrieve current source for " ns-name))))
+    (when write-to-file
+      (spit file new-source)
+      (analyze-cljs-ns! ns-name file)
+      (if *compile?* (comp/compile-cljs-in-project
+                      ns-name file (.getCanonicalPath (io/file "."))
+                      new-source old-source
+                      (:compiler-env (ensure-default-cljs-env)))))
+    (let [diff (change-ns-in-runtime! ns-name new-source old-source file)
+          change (record-change-ns! ns-name new-source old-source diff)]
+      change)))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -326,46 +283,4 @@ associated with interns, off by +1"} intern-line-offset -1)
 
  (reset! cljs-env {})
  (namespace-info 'rksm.test)
-
- (def file (first (rksm.system-files/find-namespaces-on-cp #"\.cljs$")))
- (ana/forms-seq file)
-
- (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
-   (ana/analyze-file file))
- (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
-   (get-in @env/*compiler* [::namespaces])
-;   (ana/forms-seq file)
-   )
-
- (source-for-symbol 'rksm.test/foo)
-
-
- (some-> (ensure-default-cljs-env)
-   :compiler-env
-   deref
-  :cljs.analyzer/namespaces
-  (get 'rksm.test)
-  :defs
-   (get 'foo)
-;   (select-keys [:column :line :file])
-   )
-
-
- (namespace-info 'rksm.test)
-
- (rksm.system-navigator.ns.internals/namespace-info *ns*)
- (ensure-default-cljs-env)
-
- (:cljs.analyzer/analyzed-cljs :cljs.analyzer/namespaces :options :js-dependency-index)
-
- (env/with-compiler-env (:compiler-env (ensure-default-cljs-env))
-   @ana/namespaces)
-
- (java.util.Date. (.lastModified file))
- (-> (io/file "/Users/robert/clojure/cloxp-cljs/out") .exists)
- (-> (io/file "/Users/robert/clojure/cloxp-repl/out") .exists)
-
- (System/setProperty "user.dir" "/Users/robert/clojure/cloxp-cljs")
-
-
- )
+)

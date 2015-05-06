@@ -9,14 +9,13 @@
             [clojure.string :as s]
             [cljs.closure :as cljsc]
             [cljs.env :as env]
-            [leiningen.core.project :as lein-proj]
             [leiningen.cljsbuild.config :as cljs-config]))
 
 (def ^{:dynamic true} *optimizations* :none)
 
 (defn default-build-options
   [project-dir]
-  (let [target-dir (.getCanonicalPath (io/file (str project-dir "/cloxp-cljs-build/")))
+  (let [target-dir (.getCanonicalPath (io/file project-dir "cloxp-cljs-build/")) 
         target-file (str target-dir java.io.File/separator "cloxp-cljs.js")
         out-dir (str target-dir java.io.File/separator "out")
         source-map-file (str target-file ".map")]
@@ -54,18 +53,29 @@
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ; cljs build related
 
-(defonce cljsbuild-reload-lib-orig clojurescript-build.core/reload-lib)
+(defonce cljsbuild-reload-lib-orig cljsb/reload-lib)
 
 (defn patch-cljs-build-reload
   []
   (alter-var-root
-   #'clojurescript-build.core/reload-lib
+   #'cljsb/reload-lib
    (fn [_] (fn [resource]))))
+
+; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+(defn clean
+  [project-dir & [opts]]
+  (let [opts (or opts (default-build-options project-dir))]
+    (cljsb/clean-build opts)))
+
+(comment (clean "/Users/robert/clojure/cloxp-cljs-repl")
+         (default-build-options "/Users/robert/clojure/cloxp-cljs-repl")
+         )
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ; DEPRECATED (?)
 
-(defn compile-cljs
+#_(defn compile-cljs
   [ns-name file]
   (let [target-dir (.getCanonicalPath (io/file "./cloxp-cljs-build/"))
         target-file (str target-dir java.io.File/separator
@@ -80,7 +90,7 @@
                     ;   :source-map source-map-file
                        })))
 
-(defn compile-all-cljs
+#_(defn compile-all-cljs
   [dir compiler-env]
   (let [target-dir (.getCanonicalPath (io/file "./cloxp-cljs-build/"))]
     (env/with-compiler-env (:compiler-env compiler-env)

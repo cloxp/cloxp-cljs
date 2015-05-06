@@ -7,9 +7,11 @@
                  [org.rksm/system-files "0.1.5"]
                  [org.rksm/cloxp-source-reader "0.1.6"]
                  [org.rksm/cloxp-repl "0.1.7"]
-                 [clojurescript-build/clojurescript-build "0.1.5"]
-                 [lein-cljsbuild "1.0.5"]
-                 [leiningen/leiningen "2.5.1"]]
+                 [clojurescript-build/clojurescript-build "0.1.6"
+                  :exclusions [org.clojure/clojurescript
+                               org.clojure/core.async]]
+                 [org.rksm/cloxp-projects "0.1.7"]
+                 [lein-cljsbuild "1.0.5"]]
   :source-paths ["src/clj" "src/cljs"]
   :test-paths ["src/test"]
   :deploy-repositories [["releases" :clojars]]
