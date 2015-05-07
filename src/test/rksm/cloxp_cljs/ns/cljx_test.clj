@@ -6,7 +6,7 @@
                                                   change-def!
                                                   change-ns!
                                                   source-for-symbol
-                                                  symbol-info-for-sym]]
+                                                  var-info]]
             [rksm.system-files :as sf]
             [rksm.system-files.cljx :as sfx]
             [clojure.java.io :as io]))
@@ -40,8 +40,8 @@
 
 (deftest namespace-info-test
   (is (= {:interns
-          [{:name "x-to-string",
-            :ns "rksm.cloxp-cljs.test-resources.test-cljx",
+          [{:name 'rksm.cloxp-cljs.test-resources.test-cljx/x-to-string,
+            :ns 'rksm.cloxp-cljs.test-resources.test-cljx,
             :line 3, :column 1,
             :file (.getCanonicalPath test-file)}],
           :file (.getCanonicalPath test-file),
@@ -71,11 +71,13 @@
   
   (testing "local"
     (is (= [(symbol (str test-ns-name) "x-to-string") test-ns-name]
-          ((juxt :name :ns) (symbol-info-for-sym test-ns-name 'x-to-string)))))
+          ((juxt :name :ns) (var-info test-ns-name 'x-to-string)))))
   
   (testing "local qualified"
     (is (= [(symbol (str test-ns-name) "x-to-string") test-ns-name]
-          ((juxt :name :ns) (symbol-info-for-sym test-ns-name (symbol (str test-ns-name) "x-to-string"))))))) 
+          ((juxt :name :ns)
+           (var-info test-ns-name
+                     (symbol (str test-ns-name) "x-to-string"))))))) 
 
 (deftest change-def-test
   (let [def-name (symbol (str test-ns-name) "x-to-string")
@@ -97,7 +99,8 @@
 
 (comment
  (run-tests *ns*)
- 
+ (let [s (java.io.StringWriter.)] (binding [*test-out* s] (test-ns *ns*) (print (str s))))
+
  (reset! rksm.cloxp-cljs.ns.internals/cljs-env {})
  (test-var #'rksm.cloxp-cljs.ns.internals-test/change-def-test)
  

@@ -1,7 +1,8 @@
-(ns rksm.cloxp-cljs.ns.internals
+(ns rksm.cloxp-cljs.analyzer
   (:require [cljs.analyzer :as ana]
             [cljs.env :as env]
             [cljs.analyzer.api :as ana-api]
+            [cljs.repl]
             [rksm.cloxp-cljs.filemapping :as fm]
             [rksm.cloxp-cljs.compilation :as comp]
             [rksm.system-files :as sf]
@@ -17,8 +18,7 @@
             [clojure.java.io :as io])
   (:import (java.io LineNumberReader PushbackReader File)))
 
-(declare ensure-ns-analyzed! analyzed-data-of-def analyze-cljs-ns!
-         namespace-info)
+(declare namespace-info analyze-cljs-ns! ensure-ns-analyzed!)
 
 (defonce cljs-env (atom {}))
 
@@ -35,66 +35,34 @@
          (ensure-ns-analyzed! 'cljs.core))
        env))))
 
+(defn- comp-env
+  []
+  (or env/*compiler*
+      (:compiler-env (ensure-default-cljs-env))
+      (env/default-compiler-env)))
+
+(defmacro ^:private with-compiler
+  [& body]
+  `(env/with-compiler-env (comp-env) ~@body))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-(defn source-for-symbol
-  [sym & [file]]
-  ; ensure we have analyzed data for ns of sym
-  (let [ns-name (symbol (namespace sym))
-        file (fm/find-file-for-ns-on-cp ns-name file)
-        comp-env (or env/*compiler* (:compiler-env (ensure-default-cljs-env)))]
-    (env/with-compiler-env comp-env
-      (if-not (get-in (deref comp-env) [:cljs.analyzer/namespaces ns-name])
-        (ensure-ns-analyzed! ns-name file))
-      (if-let [file-data (some-> (analyzed-data-of-def sym file)
-                           (select-keys [:column :line :file :name])
-                           (update-in [:name] (comp symbol name)))]
-        (binding [tr/*data-readers* cljs-literals/*cljs-data-readers*
-                  tr/*alias-map* (apply merge ((juxt :requires :require-macros) file-data))
-                  sfx-file/*output-mode* :cljx]
-          (let [rdr (sf/source-reader-for-ns ns-name file #"\.clj(s|x)$")]
-            (some->> [file-data]
-              (src-rdr/add-source-to-interns-with-reader rdr)
-              first :source)))))))
-
-; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
-(defn analyzed-data-of-def
-  [sym & [file]]
-  (let [ns-name (symbol (namespace sym))
-        name (symbol (name sym))
-        comp-env (or env/*compiler* (:compiler-env (ensure-default-cljs-env)))]
-    (env/with-compiler-env comp-env
-      (if-not (get-in ; in case ns data isn't there yet...
-                      (deref comp-env)
-                      [:cljs.analyzer/namespaces ns-name])
-        (ensure-ns-analyzed! ns-name))
-      (some-> (ensure-default-cljs-env)
-        :compiler-env deref
-        :cljs.analyzer/namespaces (get ns-name)
-        :defs (get name)
-        (assoc :ns ns-name)))))
 
 (def ^{:doc "2015-03-23: there seems to be an issue with the line numbers
 associated with interns, off by +1"} intern-line-offset -1)
 
-(defn intern-info
-  [{qname :name :as analyzed-def}]
-  (-> analyzed-def
-    (select-keys [:file :column :line])
-    (assoc :ns (namespace qname) :name (name qname))
-    (update-in [:line] + intern-line-offset)))
+(defn- transform-var-info
+  "subset of analyzed data returned by var-info, for use in tooling"
+  [{qname :name :as analyzed-def} & [keys]]
+  (let [data (-> analyzed-def
+               (assoc :ns (-> qname namespace symbol))
+               (update-in [:line] + intern-line-offset))]
+    (if keys (select-keys data keys) data)))
 
-(defn symbol-info-for-macro
-  [ns-name name]
-  (some-> (ns-interns ns-name) (get name) meta))
-
-(defn symbol-info-for-sym
+(defn var-info
   "find what we know about symbol in a given namespace. This is *not* asking
   for the meta data of a var, rather looking up what symbol is bound to what
   thing in a given namespaces"
-  [ns-name sym & [file]]
+  [ns-name sym & [file keys]]
   (cljs.env/with-compiler-env (or env/*compiler*
                                   (:compiler-env (ensure-default-cljs-env))
                                   (env/default-compiler-env))
@@ -103,56 +71,29 @@ associated with interns, off by +1"} intern-line-offset -1)
           ref (ana-api/resolve local sym)
           info (cond
                  (nil? ref) nil
-                 (= [:ns :name] (keys ref)) (ana-api/ns-resolve
-                                             (:ns ref) (-> ref :name name symbol))
+                 (and (map? ref)
+                      (= #{:ns :name} (.keySet ref))) (ana-api/ns-resolve
+                                                       (:ns ref) (-> ref :name name symbol))
                  :default ref)]
-      (some-> info (assoc :ns (-> info :name namespace symbol))))))
+      (some-> info (transform-var-info keys)))))
 
-; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-(defn- transform-namespace-data
-  "for add all info cloxp needs. data comes
-  from env/*compiler* :cljs.analyzer/namespaces"
-  [data & [file]]
-  (some-> data
-    (select-keys [:name :doc :excludes :use :require :uses :requires :imports])
-    (assoc :file (if file (str file)))
-    (assoc :interns (->> (:defs data) vals (map intern-info) reverse))))
-
-(defn namespace-info
-  [ns-name & [file]]
-  (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
-    (cljs.env/with-compiler-env (or env/*compiler*
-                                    (:compiler-env (ensure-default-cljs-env))
-                                    (env/default-compiler-env))
-      (some-> (or (ana-api/find-ns ns-name)
-                  (analyze-cljs-ns! ns-name file))
-        (transform-namespace-data file)))))
-
-(defn stringify [obj]
-  (cond
-    (var? obj) (:name (meta obj))
-    (or (string? obj) (symbol? obj) (keyword? obj)) (name obj)
-    (or (seq? obj)) (vec obj)
-    (or (map? obj)) obj
-    ; it seems that the value-fn in json/write is not called for every value
-    ; individually, only for map / collection like things... so to filter out
-    ; objects that couldn't be stringified to start with we have this map stmt in
-    ; here...
-    (coll? obj) (map #(if (some boolean ((juxt map? coll?) %)) % (stringify %)) obj)
-    :else (str obj)))
-
-(defn jsonify
-  [obj]
-  (json/write-str obj
-                  :key-fn #(if (keyword? %) (name %) (str %))
-                  :value-fn (fn [_ x] (stringify x))))
-
-(defn symbol-info-for-sym->json [ns-name sym & [file]]
-  (jsonify (symbol-info-for-sym ns-name sym file)))
-
-(defn namespace-info->json [ns & [file-path]]
-  (jsonify (namespace-info ns file-path)))
+(defn source-for-symbol
+  [sym & [file]]
+  (let [ns-name (-> sym namespace symbol)
+        sym-name (-> sym name symbol)
+        file (fm/find-file-for-ns-on-cp ns-name file)]
+    ; 1.
+    (ensure-ns-analyzed! ns-name file)
+    ; 2.
+    (if-let [file-data (var-info ns-name sym-name
+                                 file [:column :line :file :name])]
+      (binding [tr/*data-readers* cljs-literals/*cljs-data-readers*
+                tr/*alias-map* (apply merge ((juxt :requires :require-macros) file-data))
+                sfx-file/*output-mode* :cljx]
+        (some->> [file-data]
+          (src-rdr/add-source-to-interns-with-reader
+           (sf/source-reader-for-ns ns-name file #"\.clj(s|x|c)$"))
+          first :source)))))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -185,7 +126,64 @@ associated with interns, off by +1"} intern-line-offset -1)
       (ana-api/analyze-file file {:cache-analysis false})
       (ana-api/find-ns ns-sym))))
 
+(defn ensure-ns-analyzed!
+  [ns-name & [file]]
+  (namespace-info ns-name file))
+
+(defn reset-cljs-analyzer
+  []
+  (reset! cljs-env {}))
+
+(defn- transform-namespace-data
+  "for add all info cloxp needs. data comes
+  from env/*compiler* :cljs.analyzer/namespaces"
+  [data & [file]]
+  (some-> data
+    (select-keys [:name :doc :excludes :use :require :uses :requires :imports])
+    (assoc :file (if file (str file)))
+    (assoc :interns (->> (:defs data) vals
+                      (map #(transform-var-info % [:file :column :line :ns :name]))
+                      reverse))))
+
+(defn namespace-info
+  [ns-name & [file]]
+  (let [file (or file (fm/find-file-for-ns-on-cp ns-name))]
+    (with-compiler
+      (some-> (or (ana-api/find-ns ns-name)
+                  (analyze-cljs-ns! ns-name file))
+        (transform-namespace-data file)))))
+
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+; namespace/var data via json interface
+
+(defn- stringify [obj]
+  (cond
+    (var? obj) (:name (meta obj))
+    (or (string? obj) (symbol? obj) (keyword? obj)) (name obj)
+    (or (seq? obj)) (vec obj)
+    (or (map? obj)) obj
+    ; it seems that the value-fn in json/write is not called for every value
+    ; individually, only for map / collection like things... so to filter out
+    ; objects that couldn't be stringified to start with we have this map stmt in
+    ; here...
+    (coll? obj) (map #(if (some boolean ((juxt map? coll?) %)) % (stringify %)) obj)
+    :else (str obj)))
+
+(defn- jsonify
+  [obj]
+  (json/write-str obj
+                  :key-fn #(if (keyword? %) (name %) (str %))
+                  :value-fn (fn [_ x] (stringify x))))
+
+(defn var-info->json [ns-name sym & [file]]
+  (jsonify (var-info ns-name sym
+                     file [:file :column :line :ns :name])))
+
+(defn namespace-info->json [ns & [file-path]]
+  (jsonify (namespace-info ns file-path)))
+
+; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+; change namespaces and vars
 
 (def ^:dynamic *compile?* true)
 
@@ -204,7 +202,8 @@ associated with interns, off by +1"} intern-line-offset -1)
   [sym new-source & [write-to-file file]]
   (let [ns-name (symbol (namespace sym))
         file (fm/find-file-for-ns-on-cp ns-name file)
-        info (intern-info (analyzed-data-of-def sym file))
+        info (var-info ns-name (-> sym name symbol)
+                       file [:file :column :line :ns])
         old-file-src (sf/source-for-ns ns-name file #".cljs$")
         old-src (source-for-symbol sym file)]
 
@@ -266,16 +265,6 @@ associated with interns, off by +1"} intern-line-offset -1)
     (let [diff (change-ns-in-runtime! ns-name new-source old-source file)
           change (record-change-ns! ns-name new-source old-source diff)]
       change)))
-
-; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-(defn ensure-ns-analyzed!
-  [ns-name & [file]]
-  (namespace-info ns-name file))
-
-(defn reset-cljs-analyzer
-  []
-  (reset! cljs-env {}))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
