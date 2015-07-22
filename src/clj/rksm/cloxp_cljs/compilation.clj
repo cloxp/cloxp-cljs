@@ -56,9 +56,9 @@
 
 (defn compile-cljs-in-project
   [changed-ns file project-dir new-source old-source & [compiler-env]]
-
-  (repl/load-file new-source (str file) {:old-source old-source})
-
+  
+  ; (repl/load-file new-source (str file) {:old-source old-source})
+  
   (let [build-opts (default-build-options project-dir)
         compiler-env (or compiler-env env/*compiler* (env/default-compiler-env))]
     (cljs.closure/build project-dir build-opts compiler-env)
@@ -67,8 +67,8 @@
        (rksm.system-files/file file)
        build-opts)
       #_(cljs.closure/compile-file
-       (rksm.system-files/file file)
-       build-opts))))
+         (rksm.system-files/file file)
+         build-opts))))
 
 (comment
  
