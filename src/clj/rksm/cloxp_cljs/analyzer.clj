@@ -7,8 +7,6 @@
             [rksm.cloxp-cljs.compilation :as comp]
             [rksm.system-files :as sf]
             [rksm.system-files.jar-util :as jar]
-            [rksm.system-files.cljx :as sfx]
-            [rksm.system-files.cljx.File :as sfx-file]
             [rksm.cloxp-source-reader.core :as src-rdr]
             [clojure.data.json :as json]
             [clojure.string :as s]
@@ -21,6 +19,9 @@
 (declare namespace-info analyze-cljs-ns! ensure-ns-analyzed!)
 
 (defonce cljs-env (atom {}))
+
+(comment 
+ (reset! cljs-env {}))
 
 (defn ensure-default-cljs-env
   []
@@ -35,20 +36,24 @@
          (ensure-ns-analyzed! 'cljs.core))
        env))))
 
-(defn- comp-env
+(defn comp-env
   []
   (or env/*compiler*
       (:compiler-env (ensure-default-cljs-env))
       (env/default-compiler-env)))
 
-(defmacro ^:private with-compiler
+(defmacro with-compiler
   [& body]
   `(env/with-compiler-env (comp-env) ~@body))
+
+(defn clean
+  []
+  (reset! cljs-env {}))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 (def ^{:doc "2015-03-23: there seems to be an issue with the line numbers
-associated with interns, off by +1"} intern-line-offset -1)
+associated with interns, off by +1"} intern-line-offset 0)
 
 (defn- transform-var-info
   "subset of analyzed data returned by var-info, for use in tooling"
@@ -88,8 +93,7 @@ associated with interns, off by +1"} intern-line-offset -1)
     (if-let [file-data (var-info ns-name sym-name
                                  file [:column :line :file :name])]
       (binding [tr/*data-readers* cljs-literals/*cljs-data-readers*
-                tr/*alias-map* (apply merge ((juxt :requires :require-macros) file-data))
-                sfx-file/*output-mode* :cljx]
+                tr/*alias-map* (apply merge ((juxt :requires :require-macros) file-data))]
         (some->> [file-data]
           (src-rdr/add-source-to-interns-with-reader
            (sf/source-reader-for-ns ns-name file #"\.clj(s|x|c)$"))
@@ -106,16 +110,8 @@ associated with interns, off by +1"} intern-line-offset -1)
   (let [cenv-atom (or env/*compiler*
                       (:compiler-env (ensure-default-cljs-env))
                       (env/default-compiler-env))
-        file (fm/find-file-for-ns-on-cp ns-sym file)
-
-        ; FIXME: right now jar files won't support the auto cljx translation,
-        ; try to find cljs file instead
-        file (if (and (jar/jar-url-string?
-                       (-> (if (string? file) file (str (.getCanonicalPath file)))))
-                      (sfx/cljx-file? file))
-               (sf/file-for-ns ns-sym nil #"\.cljs")
-               file)]
-    (if-not file (throw (Exception. (str "Cannot find cljs or cljx file for namespace " ns-sym))))
+        file (fm/find-file-for-ns-on-cp ns-sym file)]
+    (if-not file (throw (Exception. (str "Cannot find cljs or cljc file for namespace " ns-sym))))
 
     (env/with-compiler-env cenv-atom
       ; first pass: ensure that dependencies are analyzed
@@ -261,7 +257,7 @@ associated with interns, off by +1"} intern-line-offset -1)
       (if *compile?* (comp/compile-cljs-in-project
                       ns-name file (.getCanonicalPath (io/file "."))
                       new-source old-source
-                      (:compiler-env (ensure-default-cljs-env)))))
+                      (comp-env))))
     (let [diff (change-ns-in-runtime! ns-name new-source old-source file)
           change (record-change-ns! ns-name new-source old-source diff)]
       change)))

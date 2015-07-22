@@ -32,7 +32,7 @@
 
 (deftest namespace-file-discorvery
   (is (= (-> test-file io/file .getCanonicalPath)
-        (-> 'rksm.test fm/find-file-for-ns-on-cp .getCanonicalPath))))
+         (-> 'rksm.test fm/find-file-for-ns-on-cp .getCanonicalPath))))
 
 (deftest namespace-info-test
 
@@ -61,21 +61,18 @@
         (cljs/source-for-symbol 'rksm.test/foo))))
 
 (deftest source-for-ns-test
-
   (is (= orig-source
-        (sf/source-for-ns 'rksm.test nil #"\.cljs$"))))
+         (sf/source-for-ns 'rksm.test nil #"\.cljs$"))))
 
 (deftest change-ns-test
   (let [new-src "(ns rksm.test\n  ; (:require [clojure.string :as s])\n  )\n\n(js/alert \"Running!\")\n\n(defn foo\n  [x]\n  (+ x 24))"]
     (cljs/change-ns! 'rksm.test new-src true)
-    (is (= new-src (slurp test-file))))
-  )
+    (is (= new-src (slurp test-file)))))
 
 (deftest change-def-test
-
   (let [new-src "(defn ^:export foo
-  [x]
-  (+ x 32))\n"
+  [x y]
+  (+ x y))\n"
         expected-src "(ns rksm.test
   (:require [clojure.string :as s]
             [clojure.set :refer (union)]))
@@ -83,10 +80,16 @@
 (js/alert (.toUpperCase \"Running 3!\"))
 
 (defn ^:export foo
-  [x]
-  (+ x 32))"]
+  [x y]
+  (+ x y))"]
+    (is (= ''([x])
+           (-> (cljs/var-info 'rksm.test 'foo) :arglists)))
     (cljs/change-def! 'rksm.test/foo new-src true)
-    (is (= expected-src (slurp test-file)))))
+    (is (= expected-src (slurp test-file))
+        "source not updated")
+    (is (= ''([x y])
+           (-> (cljs/var-info 'rksm.test 'foo) :arglists))
+        "analyzed state not updated")))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -127,8 +130,11 @@
  (defonce test-file "/Users/robert/clojure/cloxp-cljs/src/cljs/rksm/test.cljs")
  (run-tests *ns*)
  (let [s (java.io.StringWriter.)] (binding [*test-out* s] (test-ns *ns*) (print (str s))))
- 
+
+ (cljs/namespace-info 'rksm.test)
+ (spit test-file orig-source)
  (reset! cljs/cljs-env {})
+
  (test-var #'cljs/change-def-test)
  (test-var #'find-infos-about-symbols-in-ns)
  
