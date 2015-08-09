@@ -2,7 +2,7 @@
   (:require [clojurescript-build.core :as cljsb]
             [rksm.system-files :as sf]
             [rksm.system-files.fs-util :as fs-util]
-            [rksm.cloxp-cljs.filemapping :refer [cp-dirs-with-cljs]]
+            [rksm.cloxp-cljs.filemapping :refer [cp-dirs-with-cljs find-file-for-ns-on-cp]]
             [rksm.cloxp-repl :as repl]
             [clojure.java.io :as io]
             [clojure.string :as s]
@@ -49,14 +49,13 @@
       (compiler/compile-file file target-file build-opts))))
 
 (defn compile-cljs-in-project
-  [changed-ns file project-dir new-source old-source & [compiler-env]]
-  (if-let [file (or file (sf/file-for-ns changed-ns))]
+  [changed-ns file project-dir & [new-source old-source compiler-env]]
+  (if-let [file (or file (find-file-for-ns-on-cp changed-ns))]
     (let [new-source (or new-source (slurp file))
           old-source new-source
           build-opts (default-build-options project-dir)
           compiler-env (or compiler-env env/*compiler* (env/default-compiler-env))]
-       (build/build project-dir build-opts compiler-env)
-    ;   (cljs.closure/build project-dir build-opts compiler-env)
+      (build/build project-dir build-opts compiler-env)
       (ensure-ns-is-recompiled changed-ns file new-source build-opts compiler-env))
     (throw (Exception. (str "Cannot retrieve cljs file for " changed-ns)))))
 
