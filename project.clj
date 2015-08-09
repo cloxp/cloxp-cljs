@@ -12,6 +12,7 @@
                                org.clojure/core.async]]
                  [org.rksm/cloxp-projects "0.1.10-SNAPSHOT"]
                  [lein-cljsbuild "1.0.6"]]
+  :profiles {:dev {:dependencies [[fs/fs "1.1.2"]]}}
   :source-paths ["src/clj" "src/cljs"]
   :test-paths ["src/test"]
   :clean-targets ["cloxp-cljs-build" :target-path]

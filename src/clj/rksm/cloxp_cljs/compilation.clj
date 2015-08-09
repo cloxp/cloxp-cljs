@@ -8,6 +8,8 @@
             [clojure.string :as s]
             [cljs.closure :as cljsc]
             [cljs.env :as env]
+            [cljs.build.api :as build]
+            [cljs.compiler.api :as compiler]
             [leiningen.cljsbuild.config :as cljs-config]))
 
 (def ^{:dynamic true} *optimizations* :none)
@@ -18,12 +20,13 @@
         target-file (str target-dir java.io.File/separator "cloxp-cljs.js")
         out-dir (str target-dir java.io.File/separator "out")
         source-map-file (str target-file ".map")]
-    {:output-to target-file
-     :output-dir out-dir
-     :optimizations :none
-     :cache-analysis true
-     :source-map source-map-file
-     :warnings true}))
+    (build/add-implicit-options
+     {:output-to target-file
+      :output-dir out-dir
+      :optimizations :none
+      :cache-analysis true
+      :source-map source-map-file
+      :warnings true})))
 
 (defonce builds (atom {}))
 
@@ -34,45 +37,30 @@
     fs-util/remove-parent-paths
     (map #(.getCanonicalPath %))))
 
-#_(defn compile-cljs-in-project
-  [changed-ns file project-dir new-source old-source & [compiler-env]]
-
-  (repl/load-file new-source (str file) {:old-source old-source})
-
-  (let [build-opts (default-build-options project-dir)
-        cljs-source-paths (cljs-source-paths project-dir)
-        compiler-env (or compiler-env env/*compiler* (env/default-compiler-env))]
-    (env/with-compiler-env compiler-env
-    ;   (cljsb/touch-or-create-file file 0)
-      (let [build (if-let [build (some-> @builds
-                                   (get project-dir)
-                                   (assoc-in [:build-options :force] true)
-                                   (assoc :compiler-env compiler-env)
-                                   (assoc :additional-changed-ns [changed-ns]))]
-                    (cljsb/build-source-paths* build)
-                    (cljsb/build-source-paths cljs-source-paths build-opts compiler-env))]
-        (swap! builds assoc project-dir build)
-        build))))
+(defn- ensure-ns-is-recompiled
+  [ns-sym file source build-opts comp-env]
+  (env/with-compiler-env comp-env
+    (let [out-dir (:output-dir build-opts)
+          target-file (build/src-file->target-file file build-opts)
+          ext (re-find #"\.clj.?$" (str file))
+          target-clj-file (sf/file (s/replace target-file #"\.js$" ext))]
+      (.delete target-file)
+      (spit target-clj-file source)
+      (compiler/compile-file file target-file build-opts))))
 
 (defn compile-cljs-in-project
   [changed-ns file project-dir new-source old-source & [compiler-env]]
-  
-  ; (repl/load-file new-source (str file) {:old-source old-source})
-  
-  (let [build-opts (default-build-options project-dir)
-        compiler-env (or compiler-env env/*compiler* (env/default-compiler-env))]
-    (cljs.closure/build project-dir build-opts compiler-env)
-    (env/with-compiler-env compiler-env
-      (cljs.closure/build
-       (rksm.system-files/file file)
-       build-opts)
-      #_(cljs.closure/compile-file
-         (rksm.system-files/file file)
-         build-opts))))
+  (if-let [file (or file (sf/file-for-ns changed-ns))]
+    (let [new-source (or new-source (slurp file))
+          old-source new-source
+          build-opts (default-build-options project-dir)
+          compiler-env (or compiler-env env/*compiler* (env/default-compiler-env))]
+       (build/build project-dir build-opts compiler-env)
+    ;   (cljs.closure/build project-dir build-opts compiler-env)
+      (ensure-ns-is-recompiled changed-ns file new-source build-opts compiler-env))
+    (throw (Exception. (str "Cannot retrieve cljs file for " changed-ns)))))
 
-(comment
- 
- 
+(comment 
  (cljs.closure/src-file->target-file
    "/Users/robert/Lively/LivelyKernel/cloxp-cljs-scratch/src/cljs/rksm/cljs_workspace_test.cljs"
    (default-build-options "/Users/robert/Lively/LivelyKernel/cloxp-cljs-scratch")))
@@ -97,31 +85,4 @@
 
 (comment (clean "/Users/robert/clojure/cloxp-cljs-repl")
          (clean "/Users/robert/clojure/cloxp-com")
-         (default-build-options "/Users/robert/clojure/cloxp-cljs-repl")
-         )
-
-; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-; DEPRECATED (?)
-
-#_(defn compile-cljs
-  [ns-name file]
-  (let [target-dir (.getCanonicalPath (io/file "./cloxp-cljs-build/"))
-        target-file (str target-dir java.io.File/separator
-                         (-> (io/file file)
-                           .getName
-                           (s/replace #"\.clj(.)?$" ".js")))
-        source-map-file (str target-file ".map")]
-    (cljsc/build file {:optimizations *optimizations*
-                       :output-to target-file
-                       :output-dir target-dir
-                       :cache-analysis true
-                    ;   :source-map source-map-file
-                       })))
-
-#_(defn compile-all-cljs
-  [dir compiler-env]
-  (let [target-dir (.getCanonicalPath (io/file "./cloxp-cljs-build/"))]
-    (env/with-compiler-env (:compiler-env compiler-env)
-      (cljsc/build dir {:optimizations *optimizations*
-                        :output-dir target-dir
-                        :cache-analysis true}))))
+         (default-build-options "/Users/robert/clojure/cloxp-cljs-repl"))
