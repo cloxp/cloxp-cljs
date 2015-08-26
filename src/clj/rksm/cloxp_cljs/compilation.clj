@@ -14,6 +14,14 @@
 
 (def ^{:dynamic true} *optimizations* :none)
 
+(defonce builds (atom {}))
+
+(defn set-build-opts!
+  [project-dir opts]
+  (let [opts (build/add-implicit-options opts)]
+    (swap! builds assoc (str project-dir) opts)
+    opts))
+
 (defn default-build-options
   [project-dir]
   (let [target-dir (.getCanonicalPath (io/file project-dir "cloxp-cljs-build/"))
@@ -28,7 +36,10 @@
       :source-map source-map-file
       :warnings true})))
 
-(defonce builds (atom {}))
+(defn build-opts-for-project
+  [project-dir]
+  (or (get @builds (str project-dir))
+      (default-build-options project-dir)))
 
 (defn- cljs-source-paths
   [project-dir]
@@ -53,7 +64,7 @@
   (if-let [file (or file (find-file-for-ns-on-cp changed-ns))]
     (let [new-source (or new-source (slurp file))
           old-source new-source
-          build-opts (default-build-options project-dir)
+          build-opts (build-opts-for-project project-dir)
           compiler-env (or compiler-env env/*compiler* (env/default-compiler-env))]
       (build/build project-dir build-opts compiler-env)
       (ensure-ns-is-recompiled changed-ns file new-source build-opts compiler-env))
@@ -62,7 +73,7 @@
 (comment 
  (cljs.closure/src-file->target-file
    "/Users/robert/Lively/LivelyKernel/cloxp-cljs-scratch/src/cljs/rksm/cljs_workspace_test.cljs"
-   (default-build-options "/Users/robert/Lively/LivelyKernel/cloxp-cljs-scratch")))
+   (build-opts-for-project "/Users/robert/Lively/LivelyKernel/cloxp-cljs-scratch")))
 
 ; -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ; cljs build related
@@ -79,9 +90,9 @@
 
 (defn clean
   [project-dir & [opts]]
-  (let [opts (or opts (default-build-options project-dir))]
+  (let [opts (or opts (build-opts-for-project project-dir))]
     (cljsb/clean-build opts)))
 
 (comment (clean "/Users/robert/clojure/cloxp-cljs-repl")
          (clean "/Users/robert/clojure/cloxp-com")
-         (default-build-options "/Users/robert/clojure/cloxp-cljs-repl"))
+         (build-opts-for-project "/Users/robert/clojure/cloxp-cljs-repl"))
