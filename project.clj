@@ -3,7 +3,7 @@
   :license {:name "MIT License"
             :url "http://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.7.0"]
-                 [org.clojure/clojurescript "0.0-3308"]
+                 [org.clojure/clojurescript "1.7.48"]
                  [org.rksm/system-files "0.1.7-SNAPSHOT"]
                  [org.rksm/cloxp-source-reader "0.1.9-SNAPSHOT"]
                  [org.rksm/cloxp-repl "0.1.8-SNAPSHOT"]

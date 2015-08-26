@@ -27,20 +27,27 @@
   []
   (if-let [e (:default @cljs-env)]
     e
-    (env/ensure
-     (let [env {:analyzer-env (atom (merge (ana/empty-env) {:ns 'cljs.user}))
-                :compiler-env env/*compiler*}]
-       (swap! cljs-env assoc :default env)
+    (let [comp-env (let [ups-deps (cljsc/get-upstream-deps)
+                         opts {:ups-libs (:libs ups-deps)
+                               :ups-foreign-libs (:foreign-libs ups-deps)}]
+                     (env/default-compiler-env opts))
+          env {:analyzer-env (atom (merge (ana/empty-env) {:ns 'cljs.user}))
+               :compiler-env comp-env}]
+      (swap! cljs-env assoc :default env)
       (if-not (some-> env :compiler-env deref
-                 :cljs.analyzer/namespaces (get 'cljs.core))
-         (ensure-ns-analyzed! 'cljs.core))
-       env))))
+                :cljs.analyzer/namespaces (get 'cljs.core))
+        (ensure-ns-analyzed! 'cljs.core))
+      env)))
 
 (defn comp-env
   []
   (or env/*compiler*
-      (:compiler-env (ensure-default-cljs-env))
-      (env/default-compiler-env)))
+      (:compiler-env (ensure-default-cljs-env))))
+
+(defn ana-env
+  []
+  (or @(:analyzer-env (ensure-default-cljs-env))
+      (ana/empty-env)))
 
 (defmacro with-compiler
   [& body]
@@ -68,9 +75,7 @@ associated with interns, off by +1"} intern-line-offset 0)
   for the meta data of a var, rather looking up what symbol is bound to what
   thing in a given namespaces"
   [ns-name sym & [file keys]]
-  (cljs.env/with-compiler-env (or env/*compiler*
-                                  (:compiler-env (ensure-default-cljs-env))
-                                  (env/default-compiler-env))
+  (cljs.env/with-compiler-env (comp-env)
     (let [local (-> (ana-api/empty-env)
                   (assoc :ns (namespace-info ns-name)))
           ref (ana-api/resolve local sym)
@@ -107,9 +112,7 @@ associated with interns, off by +1"} intern-line-offset 0)
   (if-not (find-ns ns-sym)
     (create-ns ns-sym))
 
-  (let [cenv-atom (or env/*compiler*
-                      (:compiler-env (ensure-default-cljs-env))
-                      (env/default-compiler-env))
+  (let [cenv-atom (comp-env)
         file (fm/find-file-for-ns-on-cp ns-sym file)]
     (if-not file (throw (Exception. (str "Cannot find cljs or cljc file for namespace " ns-sym))))
 
