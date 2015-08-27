@@ -20,7 +20,7 @@
 
 (defonce cljs-env (atom {}))
 
-(comment 
+(comment
  (reset! cljs-env {}))
 
 (defn ensure-default-cljs-env
@@ -75,10 +75,9 @@ associated with interns, off by +1"} intern-line-offset 0)
   for the meta data of a var, rather looking up what symbol is bound to what
   thing in a given namespaces"
   [ns-name sym & [file keys]]
-  (cljs.env/with-compiler-env (comp-env)
-    (let [local (-> (ana-api/empty-env)
-                  (assoc :ns (namespace-info ns-name)))
-          ref (ana-api/resolve local sym)
+  (with-compiler
+    (let [ana-env (assoc (ana-env) :ns (ana-api/find-ns ns-name))
+          ref (ana-api/resolve ana-env sym)
           info (cond
                  (nil? ref) nil
                  (and (map? ref)
@@ -112,18 +111,16 @@ associated with interns, off by +1"} intern-line-offset 0)
   (if-not (find-ns ns-sym)
     (create-ns ns-sym))
 
-  (let [cenv-atom (comp-env)
-        file (fm/find-file-for-ns-on-cp ns-sym file)]
-    (if-not file (throw (Exception. (str "Cannot find cljs or cljc file for namespace " ns-sym))))
-
-    (env/with-compiler-env cenv-atom
+  (if-let [file (fm/find-file-for-ns-on-cp ns-sym file)]
+    (with-compiler
       ; first pass: ensure that dependencies are analyzed
       (if-not (ana-api/find-ns ns-sym)
         (ana/no-warn (ana-api/analyze-file file {:cache-analysis false})))
       (ana-api/remove-ns ns-sym)
       ; second pass: there might be warnings
       (ana-api/analyze-file file {:cache-analysis false})
-      (ana-api/find-ns ns-sym))))
+      (ana-api/find-ns ns-sym))
+    (throw (Exception. (str "Cannot find cljs or cljc file for namespace " ns-sym)))))
 
 (defn ensure-ns-analyzed!
   [ns-name & [file]]
@@ -138,10 +135,10 @@ associated with interns, off by +1"} intern-line-offset 0)
   from env/*compiler* :cljs.analyzer/namespaces"
   [data & [file]]
   (some-> data
-    (select-keys [:name :doc :excludes :use :require :uses :requires :imports])
+    (select-keys [:use-macros :excludes :macros :name :imports :requires :uses :require-macros :doc])
     (assoc :file (if file (str file)))
     (assoc :interns (->> (:defs data) vals
-                      (map #(transform-var-info % [:file :column :line :ns :name]))
+                      (map #(transform-var-info % [:macro :doc :file :line :column :name :ns]))
                       reverse))))
 
 (defn namespace-info
@@ -176,7 +173,7 @@ associated with interns, off by +1"} intern-line-offset 0)
 
 (defn var-info->json [ns-name sym & [file]]
   (jsonify (var-info ns-name sym
-                     file [:file :column :line :ns :name])))
+                     file [:macro :doc :file :line :column :name :ns])))
 
 (defn namespace-info->json [ns & [file-path]]
   (jsonify (namespace-info ns file-path)))
